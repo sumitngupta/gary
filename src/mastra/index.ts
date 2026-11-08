@@ -19,7 +19,7 @@ import {
 } from './routes/media-availability-watch';
 import { whatsappGaryDeliveryRoute, whatsappGaryVerificationRoute } from './routes/whatsapp-verification';
 import { ensureOwner } from './channels/people';
-import { webRoutes } from './channels/web-session';
+import { recordWebPeerAddress, webRoutes } from './channels/web-session';
 import { garyLinkedVisualExtractionWorkflow } from './workflows/gary-linked-visual-extraction-workflow';
 import { garyListShelfSyncWorkflow } from './workflows/gary-list-shelf-sync-workflow';
 import { garyMediaQualityWorkflow } from './workflows/gary-media-quality-workflow';
@@ -115,7 +115,7 @@ export const mastra = new Mastra({
   }),
   server: {
     port: config.port,
-    middleware: [{ path: '/api/*', handler: guardMastraApi }],
+    middleware: [{ path: '/api/*', handler: guardMastraApi }, recordWebPeerAddress],
     apiRoutes: [
       healthzRoute,
       ...webRoutes,

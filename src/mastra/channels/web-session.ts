@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { registerApiRoute } from '@mastra/core/server';
+import { registerApiRoute, type Middleware } from '@mastra/core/server';
 import type { WebUser } from '@chat-adapter/web';
 import { serverName } from '../config/branding';
 import { garyConfig } from '../config/gary-config';
@@ -40,15 +40,20 @@ export function resetWebSignInFailuresForTests() {
   failedSignIns.length = 0;
 }
 
+const PEER_ADDRESS = 'gary.peerAddress';
+
 /**
- * Behind a trusted reverse proxy the socket peer is the proxy, so the client
- * is the last x-forwarded-for hop: the one the proxy itself appended. Earlier
- * hops are whatever the client chose to send.
+ * Mastra re-dispatches custom routes to an inner app that has no socket, so
+ * this server middleware, which runs on the outer app, hands the peer address
+ * to the route through the request context.
  */
-function clientAddress(c: Parameters<typeof getConnInfo>[0]) {
-  const forwarded = garyConfig().web.trustProxy ? c.req.header('x-forwarded-for')?.split(',').at(-1)?.trim() : undefined;
-  return forwarded || getConnInfo(c).remote.address || 'unknown';
-}
+export const recordWebPeerAddress: Extract<Middleware, { path: string }> = {
+  path: '/gary/web/session',
+  handler: async (c, next) => {
+    c.get('requestContext').set(PEER_ADDRESS, getConnInfo(c as never).remote.address);
+    await next();
+  },
+};
 
 function signInBlocked(address: string, now = Date.now()) {
   while (failedSignIns.length && failedSignIns[0].at < now - FAILURE_WINDOW_MS) failedSignIns.shift();
@@ -75,7 +80,12 @@ export const webSignInRoute = registerApiRoute('/gary/web/session', {
   method: 'POST',
   requiresAuth: false,
   handler: async (c) => {
-    const address = clientAddress(c as never);
+    // Behind a trusted reverse proxy the peer is the proxy, so the client is the last
+    // x-forwarded-for hop, the one the proxy appended. Earlier hops are client-supplied.
+    const forwarded = garyConfig().web.trustProxy ? c.req.header('x-forwarded-for')?.split(',').at(-1)?.trim() : undefined;
+    const peer = c.get('requestContext').get(PEER_ADDRESS) as string | undefined;
+    if (!forwarded && !peer) throw new Error('recordWebPeerAddress must be in server.middleware');
+    const address = forwarded || peer!;
     if (signInBlocked(address)) return c.json({ error: 'Too many failed sign-ins. Try again in an hour.' }, 429);
     const body = await c.req.json().catch(() => ({})) as { secret?: unknown };
     const secret = typeof body.secret === 'string' ? body.secret.trim() : '';
