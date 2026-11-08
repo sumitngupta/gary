@@ -19,6 +19,8 @@
     "check": "npm run typecheck && npm test && npm run scrub"
   },
   "dependencies": {
+    "@chat-adapter/telegram": "4.34.0",
+    "@chat-adapter/web": "4.34.0",
     "@chat-adapter/whatsapp": "4.34.0",
     "@libsql/client": "0.17.4",
     "@mastra/core": "1.51.0",
