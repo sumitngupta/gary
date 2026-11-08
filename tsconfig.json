@@ -9,9 +9,13 @@
     "skipLibCheck": true,
     "noEmit": true,
     "outDir": "dist",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "scripts/**/*.ts",
+    "test/**/*.ts"
   ]
 }

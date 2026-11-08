@@ -12,6 +12,7 @@
     "dev": "mastra dev",
     "build": "mastra build",
     "start": "node .mastra/output/index.mjs",
+    "doctor": "tsx scripts/doctor.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test --import ./test/setup-env.ts \"src/**/*.test.ts\"",
     "scrub": "node scripts/check-scrub.mjs",
