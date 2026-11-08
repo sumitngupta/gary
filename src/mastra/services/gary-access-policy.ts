@@ -173,8 +173,12 @@ export async function enforceGaryAccessPolicy(input: { caller: Caller | undefine
  * and `channel:externalId` for unknown senders, so enrollment attempts are
  * rate limited too.
  */
+const INBOUND_EVENT_RETENTION_MS = 24 * 3_600_000;
+
+/** Replay protection and the hourly burst limit only need the last day of events. */
 export async function claimGaryInboundEvent(input: { channel: string; eventId: string; actorKey: string }) {
   const database = await db();
+  await database.execute({ sql: 'DELETE FROM gary_inbound_events WHERE received_at < ?', args: [new Date(Date.now() - INBOUND_EVENT_RETENTION_MS).toISOString()] });
   const replay = await database.execute({ sql: 'SELECT 1 FROM gary_inbound_events WHERE channel = ? AND event_id = ?', args: [input.channel, input.eventId] });
   if (replay.rows.length) return { accepted: false, firstForActor: false, reasonCode: 'duplicate_event' as const };
   const prior = await database.execute({ sql: 'SELECT received_at FROM gary_inbound_events WHERE actor_key = ? ORDER BY received_at DESC LIMIT ?', args: [input.actorKey, garyConfig().policy.hourlyInboundLimit] });

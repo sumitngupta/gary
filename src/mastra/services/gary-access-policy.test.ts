@@ -160,3 +160,16 @@ test('web research safety budgets are isolated by person', async () => isolatedP
   for (const caller of [member(), member(), member(undefined, bob)]) codes.push((await enforceGaryAccessPolicy({ caller, toolName: 'webSearch', input: {} })).reasonCode);
   assert.deepEqual(codes, ['allowed', 'hourly_web_quota_reached', 'allowed']);
 }));
+
+test('inbound claims prune events older than 24 hours', async (t) => isolatedPolicy(async () => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-01-01T00:00:00Z') });
+  const claim = (actorKey: string, eventId: string) => claimGaryInboundEvent({ channel: 'telegram', eventId, actorKey });
+  for (const eventId of ['a1', 'a2', 'a3']) await claim('u_alice', eventId);
+  for (const eventId of ['b1', 'b2']) await claim('u_bob', eventId);
+  t.mock.timers.setTime(Date.parse('2026-01-01T23:00:00Z'));
+  await claim('u_alice', 'a4');
+  t.mock.timers.setTime(Date.parse('2026-01-02T01:00:00Z'));
+  await claim('u_bob', 'b3');
+  const removed = [(await deleteGaryPolicyEvents('u_alice')).inboundEvents, (await deleteGaryPolicyEvents('u_bob')).inboundEvents];
+  assert.deepEqual(removed, [1, 1]);
+}));
