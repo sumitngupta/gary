@@ -5,12 +5,12 @@ import {
   markMatchingMediaAvailabilityWatchesDirty,
 } from '../services/media-availability-watch-store';
 import { garyConfig } from '../config/gary-config';
+import { bearerMatches, secretMatches } from '../config/secret-compare';
 
 // Plex webhooks cannot set an Authorization header, so ?token= is accepted too.
 export function isAuthorized(authorization: string | undefined, token: string | undefined) {
   const expected = garyConfig().mediaEventsToken;
-  if (!expected) return false;
-  return authorization === `Bearer ${expected}` || token === expected;
+  return bearerMatches(authorization, expected) || secretMatches(token, expected);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

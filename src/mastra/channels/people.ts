@@ -1,7 +1,8 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { createClient, type Client } from '@libsql/client';
 import { garyConfig } from '../config/gary-config';
+import { secretMatches } from '../config/secret-compare';
 
 export const CHANNEL_NAMES = ['web', 'telegram', 'whatsapp'] as const;
 export type ChannelName = (typeof CHANNEL_NAMES)[number];
@@ -146,12 +147,6 @@ function identityExpiry(key: IdentityKey) {
   return key.channel === 'web' ? new Date(Date.now() + WEB_SESSION_DAYS * 86_400_000).toISOString() : null;
 }
 
-function passwordMatches(password: string) {
-  const expected = garyConfig().web.adminPassword;
-  if (!expected) return false;
-  return timingSafeEqual(Buffer.from(sha256(password)), Buffer.from(sha256(expected)));
-}
-
 /**
  * Links (channel, externalId) to a person. An identity that is already linked
  * returns that person without spending a code. A code links exactly one
@@ -161,7 +156,7 @@ export async function enroll(key: IdentityKey, credential: Credential): Promise<
   const existing = await identify(key);
   if (existing) return { status: 'linked', person: existing, newUser: false };
   if (credential.kind === 'owner-password') {
-    if (!passwordMatches(credential.password)) return { status: 'refused', reason: 'bad_password' };
+    if (!secretMatches(credential.password, garyConfig().web.adminPassword)) return { status: 'refused', reason: 'bad_password' };
     const owner = (await admins())[0] ?? (await ensureOwner(), (await admins())[0]);
     await (await db()).execute({
       sql: 'INSERT INTO gary_channel_identities (channel, external_id, user_id, linked_at, expires_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',

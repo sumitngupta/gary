@@ -1,10 +1,10 @@
 import { registerApiRoute } from '@mastra/core/server';
 import { dispositionGaryEscalation, getOperationTimeline, listGaryEscalationQueue } from '../services/gary-operations-store';
 import { garyConfig } from '../config/gary-config';
+import { bearerMatches } from '../config/secret-compare';
 
 function authorized(header?: string) {
-  const expected = garyConfig().adminToken;
-  return Boolean(expected && header === `Bearer ${expected}`);
+  return bearerMatches(header, garyConfig().adminToken);
 }
 
 export const garyEscalationsRoute = registerApiRoute('/gary/escalations', {

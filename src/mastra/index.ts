@@ -1,4 +1,5 @@
 import { bootConfig } from './config/boot';
+import { bearerMatches } from './config/secret-compare';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { Mastra } from '@mastra/core/mastra';
@@ -42,7 +43,7 @@ const CHANNEL_WEBHOOK = /^\/api\/agents\/gary\/channels\/[a-z]+\/webhook$/;
  */
 const guardMastraApi: Extract<Middleware, { path: string }>['handler'] = async (c, next) => {
   if (CHANNEL_WEBHOOK.test(c.req.path)) return next();
-  if (config.adminToken && c.req.header('authorization') === `Bearer ${config.adminToken}`) return next();
+  if (bearerMatches(c.req.header('authorization'), config.adminToken)) return next();
   return c.json({ error: 'Not found' }, 404);
 };
 
