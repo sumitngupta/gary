@@ -15,19 +15,23 @@ const privateTerms = process.env.GARY_SCRUB_DENYLIST && fs.existsSync(process.en
   ? fs.readFileSync(process.env.GARY_SCRUB_DENYLIST, 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
   : [];
 const allowEmails = new Set(['noreply@anthropic.com']);
+const allowlistFile = 'scripts/scrub-allowlist.json';
+const allowlistSource = process.env.GARY_SCRUB_ALLOWLIST || allowlistFile;
+const allowed = fs.existsSync(allowlistSource) ? JSON.parse(fs.readFileSync(allowlistSource, 'utf8')) : [];
+const isAllowed = (file, match) => allowed.some((a) => a.file === file && a.match === match);
 
 const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8' })
-  .split('\n').filter((f) => f && fs.existsSync(f) && !/\.(png|jpe?g|gif|webp|ico|woff2?|lock)$/.test(f) && f !== 'package-lock.json');
+  .split('\n').filter((f) => f && fs.existsSync(f) && !/\.(png|jpe?g|gif|webp|ico|woff2?|lock)$/.test(f) && f !== 'package-lock.json' && f !== allowlistFile);
 
 const hits = [];
 for (const file of files) {
   const lines = fs.readFileSync(file, 'utf8').split('\n');
   lines.forEach((line, i) => {
-    if (line.includes('scrub-allow')) return;
     for (const rule of generic) {
       for (const m of line.matchAll(rule.re)) {
         if (rule.keep && !rule.keep(m)) continue;
         if (rule.name === 'non-example email' && allowEmails.has(m[0])) continue;
+        if (isAllowed(file, m[0])) continue;
         hits.push(`${file}:${i + 1} ${rule.name}`);
       }
     }

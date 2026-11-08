@@ -19,6 +19,8 @@ npm run dev
 3. Add a test for every behavior change. A test calls the code the way Gary does and asserts the exact result.
 4. Keep each commit to one logical change, with a [Conventional Commits](https://www.conventionalcommits.org) subject such as `fix(web): ...`.
 
+To run the same gate on every commit you push, run `git config core.hooksPath scripts/hooks` once. A test fixture that must contain a private address goes in `scripts/scrub-allowlist.json` with the reason.
+
 Never commit a real API key, token, phone number, or hostname. Use `example.com`, `555` phone numbers, and the documentation IP ranges in tests.
 
 By contributing, you agree that your contribution is licensed under the MIT License.

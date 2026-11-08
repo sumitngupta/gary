@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Enable with: git config core.hooksPath scripts/hooks
+set -euo pipefail
+repo=$(git rev-parse --show-toplevel)
+gate="$repo/scripts/check-scrub.mjs"
+terms=""
+if [[ -n "${GARY_SCRUB_DENYLIST:-}" ]]; then
+  [[ -f "$GARY_SCRUB_DENYLIST" ]] || { echo "pre-push: GARY_SCRUB_DENYLIST points at a missing file" >&2; exit 1; }
+  terms=$(grep -v '^#' "$GARY_SCRUB_DENYLIST" | sed '/^$/d')
+fi
+tmp=$(mktemp -d)
+cleanup() { git -C "$repo" worktree remove --force "$tmp/wt" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
+trap cleanup EXIT
+while read -r _ local_sha _ remote_sha; do
+  [[ "$local_sha" =~ ^0+$ ]] && continue
+  range="$local_sha"; [[ "$remote_sha" =~ ^0+$ ]] || range="$remote_sha..$local_sha"
+  git -C "$repo" worktree add -q --detach "$tmp/wt" "$local_sha"
+  cp "$tmp/wt/scripts/scrub-allowlist.json" "$tmp/allowlist.json" 2>/dev/null || echo '[]' > "$tmp/allowlist.json"
+  for c in $(git -C "$repo" rev-list "$range"); do
+    git -C "$tmp/wt" checkout -q --detach "$c"
+    (cd "$tmp/wt" && GARY_SCRUB_ALLOWLIST="$tmp/allowlist.json" node "$gate" >/dev/null 2>&1) || { echo "pre-push: scrub gate failed in the tree of commit $c" >&2; exit 1; }
+    if [[ -n "$terms" ]] && git -C "$repo" show "$c" --format='%B' --no-patch | grep -qiF "$terms"; then
+      echo "pre-push: commit message $c mentions a private term" >&2; exit 1
+    fi
+  done
+  git -C "$repo" worktree remove --force "$tmp/wt"
+done

@@ -6,13 +6,13 @@ test('linked visual discovery resolves Open Graph and gallery images without pri
   assert.deepEqual(mediaUrlsFromHtml(`
     <meta property="og:image" content="/poster.jpg">
     <img src="https://cdn.example.com/list-2.png">
-    <img src="http://192.168.1.20/private.png"> <!-- scrub-allow: private-network fixture -->
+    <img src="http://192.168.1.20/private.png">
   `, 'https://example.com/post/1'), [
     'https://example.com/poster.jpg',
     'https://cdn.example.com/list-2.png',
   ]);
   assert.equal(safePublicHttpUrl('http://localhost/secret'), undefined);
-  assert.equal(safePublicHttpUrl('http://10.0.0.2/secret'), undefined); // scrub-allow: private-network fixture
+  assert.equal(safePublicHttpUrl('http://10.0.0.2/secret'), undefined);
   assert.equal(safePublicHttpUrl('https://example.com/list.jpg'), 'https://example.com/list.jpg');
 });
 
