@@ -22,6 +22,7 @@
     "@chat-adapter/telegram": "4.34.0",
     "@chat-adapter/web": "4.34.0",
     "@chat-adapter/whatsapp": "4.34.0",
+    "@hono/node-server": "1.19.14",
     "@libsql/client": "0.17.4",
     "@mastra/core": "1.51.0",
     "@mastra/libsql": "1.16.0",
@@ -34,6 +35,7 @@
   },
   "devDependencies": {
     "@types/node": "26.1.1",
+    "hono": "4.12.27",
     "mastra": "1.19.0",
     "typescript": "6.0.3"
   },

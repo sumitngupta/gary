@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { registerApiRoute } from '@mastra/core/server';
 import type { WebUser } from '@chat-adapter/web';
 import { serverName } from '../config/branding';
@@ -8,8 +9,10 @@ import { webChatPage } from './web-chat-page';
 
 const COOKIE = 'gary_session';
 const MAX_AGE_SECONDS = 30 * 86_400;
-const FAILED_LOGIN_LIMIT = 10;
-const failedLogins: number[] = [];
+const FAILURE_WINDOW_MS = 3_600_000;
+const FAILURES_PER_ADDRESS = 10;
+const FAILURES_ACROSS_ADDRESSES = 1_000;
+const failedSignIns: Array<{ address: string; at: number }> = [];
 
 function sessionToken(request: Request) {
   for (const part of (request.headers.get('cookie') || '').split(';')) {
@@ -33,9 +36,24 @@ export async function webUserFromRequest(request: Request): Promise<WebUser | nu
   return person ? { id: externalId, name: person.displayName } : null;
 }
 
-function tooManyFailures(now = Date.now()) {
-  while (failedLogins.length && failedLogins[0] < now - 3_600_000) failedLogins.shift();
-  return failedLogins.length >= FAILED_LOGIN_LIMIT;
+export function resetWebSignInFailuresForTests() {
+  failedSignIns.length = 0;
+}
+
+/**
+ * Behind a trusted reverse proxy the socket peer is the proxy, so the client
+ * is the last x-forwarded-for hop: the one the proxy itself appended. Earlier
+ * hops are whatever the client chose to send.
+ */
+function clientAddress(c: Parameters<typeof getConnInfo>[0]) {
+  const forwarded = garyConfig().web.trustProxy ? c.req.header('x-forwarded-for')?.split(',').at(-1)?.trim() : undefined;
+  return forwarded || getConnInfo(c).remote.address || 'unknown';
+}
+
+function signInBlocked(address: string, now = Date.now()) {
+  while (failedSignIns.length && failedSignIns[0].at < now - FAILURE_WINDOW_MS) failedSignIns.shift();
+  return failedSignIns.length >= FAILURES_ACROSS_ADDRESSES
+    || failedSignIns.filter((failure) => failure.address === address).length >= FAILURES_PER_ADDRESS;
 }
 
 export const webChatPageRoute = registerApiRoute('/', {
@@ -57,7 +75,8 @@ export const webSignInRoute = registerApiRoute('/gary/web/session', {
   method: 'POST',
   requiresAuth: false,
   handler: async (c) => {
-    if (tooManyFailures()) return c.json({ error: 'Too many failed sign-ins. Try again in an hour.' }, 429);
+    const address = clientAddress(c as never);
+    if (signInBlocked(address)) return c.json({ error: 'Too many failed sign-ins. Try again in an hour.' }, 429);
     const body = await c.req.json().catch(() => ({})) as { secret?: unknown };
     const secret = typeof body.secret === 'string' ? body.secret.trim() : '';
     const token = randomBytes(32).toString('base64url');
@@ -66,7 +85,7 @@ export const webSignInRoute = registerApiRoute('/gary/web/session', {
       ? await enroll(key, { kind: 'code', text: secret })
       : await enroll(key, { kind: 'owner-password', password: secret });
     if (outcome.status === 'refused') {
-      failedLogins.push(Date.now());
+      failedSignIns.push({ address, at: Date.now() });
       return c.json({ error: 'That password or invite code did not work.' }, 401);
     }
     c.header('Set-Cookie', cookie(token, MAX_AGE_SECONDS));

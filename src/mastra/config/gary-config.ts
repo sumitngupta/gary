@@ -33,6 +33,7 @@ const envSchema = z.object({
   GARY_ALLOW_REQUESTS: flag(true),
   GARY_READ_ONLY: flag(false),
   GARY_ADMIN_PASSWORD: text,
+  GARY_TRUST_PROXY: flag(false),
   GARY_DAILY_MUTATION_LIMIT: count(10),
   GARY_DAILY_LIST_LIMIT: count(100),
   GARY_HOURLY_WEB_LIMIT: count(100),
@@ -113,7 +114,7 @@ export type GaryConfig = {
   };
   storage: { healthFile?: string; warningPercent: number; criticalPercent: number };
   stalledAlertCooldownHours: number;
-  web: { adminPassword?: string };
+  web: { adminPassword?: string; trustProxy: boolean };
   telegram?: { botToken: string };
   whatsapp?: WhatsAppSettings;
   webLookup: {
@@ -238,7 +239,7 @@ export function parseGaryConfig(rawEnv: Record<string, string | undefined>): Gar
       criticalPercent: env.GARY_STORAGE_CRITICAL_PERCENT,
     },
     stalledAlertCooldownHours: env.GARY_STALLED_ALERT_COOLDOWN_HOURS,
-    web: { adminPassword: env.GARY_ADMIN_PASSWORD },
+    web: { adminPassword: env.GARY_ADMIN_PASSWORD, trustProxy: env.GARY_TRUST_PROXY },
     telegram: env.TELEGRAM_BOT_TOKEN ? { botToken: env.TELEGRAM_BOT_TOKEN } : undefined,
     whatsapp,
     webLookup: {
