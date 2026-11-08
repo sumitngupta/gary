@@ -34,3 +34,20 @@ export function transcriptionEndpoint(settings: ModelSettings = garyConfig().mod
     apiKey: settings.apiKey,
   };
 }
+
+const MODEL_STATUS_REASONS: Record<number, string> = {
+  401: 'the provider rejected LLM_API_KEY',
+  403: 'the provider refused LLM_API_KEY for this model',
+  404: 'the provider does not know LLM_MODEL',
+  429: 'rate limited or out of quota',
+};
+
+/** Provider error bodies can echo the key back, so only the status or a network code is reported. */
+export function describeModelError(error: unknown): string {
+  for (let current = error; current instanceof Error; current = current.cause) {
+    const { statusCode, code } = current as Error & { statusCode?: unknown; code?: unknown };
+    if (typeof statusCode === 'number') return MODEL_STATUS_REASONS[statusCode] ? `HTTP ${statusCode}: ${MODEL_STATUS_REASONS[statusCode]}` : `HTTP ${statusCode} from the provider`;
+    if (typeof code === 'string' && /^E[A-Z]+$/.test(code)) return `could not reach the model endpoint (${code})`;
+  }
+  return `model call failed (${error instanceof Error ? error.name : typeof error})`;
+}

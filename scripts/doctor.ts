@@ -1,7 +1,8 @@
 import { Agent } from '@mastra/core/agent';
+import { noopLogger } from '@mastra/core/logger';
 import { GaryConfigError, MEDIA_SERVICES, parseGaryConfig, type GaryConfig, type MediaServiceName } from '../src/mastra/config/gary-config';
-import { garyLanguageModel, garyProviderOptions } from '../src/mastra/config/model';
-import { describeProbeError, probeService } from '../src/mastra/services/media-service-probes';
+import { describeModelError, garyLanguageModel, garyProviderOptions } from '../src/mastra/config/model';
+import { probeService } from '../src/mastra/services/media-service-probes';
 
 type Line = { name: string; ok: boolean; detail: string };
 
@@ -9,6 +10,7 @@ async function checkModel(config: GaryConfig): Promise<Line> {
   const name = `llm (${config.model.model}${config.model.baseUrl ? ' via LLM_BASE_URL' : ''})`;
   try {
     const agent = new Agent({ id: 'gary-doctor', name: 'Gary doctor', instructions: 'Reply with exactly OK.', model: garyLanguageModel(config.model) });
+    agent.__setLogger(noopLogger);
     // OpenAI-compatible servers disagree on max_tokens (OpenAI's reasoning
     // models reject it), so the token cap applies only to the router path.
     const result = await agent.generate('Reply with OK', {
@@ -18,7 +20,7 @@ async function checkModel(config: GaryConfig): Promise<Line> {
     const reply = result.text.trim().slice(0, 40);
     return reply ? { name, ok: true, detail: `replied "${reply}"` } : { name, ok: false, detail: 'empty reply' };
   } catch (error) {
-    return { name, ok: false, detail: describeProbeError(error, config.model.apiKey || '\u0000') };
+    return { name, ok: false, detail: describeModelError(error) };
   }
 }
 
