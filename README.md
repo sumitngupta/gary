@@ -17,7 +17,7 @@ Gary runs as one Docker container next to your media stack. People reach it from
 1. Get the code and create your settings file.
 
 	```sh
-	git clone https://github.com/<owner>/gary.git
+	git clone https://github.com/sumitngupta/gary.git
 	cd gary
 	cp .env.example .env
 	mkdir -p data
@@ -42,11 +42,11 @@ Gary runs as one Docker container next to your media stack. People reach it from
 	The doctor prints one line per service and one for the model, and exits with code 1 if any of them fails. It sends only read requests and a one-word prompt to the model:
 
 	```text
-	seerr                      ok    3.3.0
-	sonarr                     ok    4.0.19.2979
-	radarr                     ok    6.3.0.10514
-	plex                       ok    1.43.1.10611-1e34174b1
-	tautulli                   ok    v2.17.2
+	seerr                      ok    <version>
+	sonarr                     ok    <version>
+	radarr                     ok    <version>
+	plex                       ok    <version>
+	tautulli                   ok    <version>
 	llm (openai/gpt-5.6-luna)  ok    replied "OK"
 	not configured: prowlarr, sabnzbd
 	```
@@ -112,6 +112,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). To report a security problem, see [SECUR
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
 Gary is not affiliated with Plex, Sonarr, Radarr, or Seerr.

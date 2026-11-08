@@ -21,4 +21,4 @@ npm run dev
 
 Never commit a real API key, token, phone number, or hostname. Use `example.com`, `555` phone numbers, and the documentation IP ranges in tests.
 
-By contributing, you agree that your contribution is licensed under the Apache License 2.0.
+By contributing, you agree that your contribution is licensed under the MIT License.
