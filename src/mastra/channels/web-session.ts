@@ -4,11 +4,11 @@ import { registerApiRoute } from '@mastra/core/server';
 import type { WebUser } from '@chat-adapter/web';
 import { serverName } from '../config/branding';
 import { garyConfig } from '../config/gary-config';
-import { enroll, identify, unlink, webSubject } from './people';
+import { enroll, identify, unlink, WEB_SESSION_DAYS, webSubject } from './people';
 import { webChatPage } from './web-chat-page';
 
 const COOKIE = 'gary_session';
-const MAX_AGE_SECONDS = 30 * 86_400;
+const MAX_AGE_SECONDS = WEB_SESSION_DAYS * 86_400;
 const FAILURE_WINDOW_MS = 3_600_000;
 const FAILURES_PER_ADDRESS = 10;
 const FAILURES_ACROSS_ADDRESSES = 1_000;

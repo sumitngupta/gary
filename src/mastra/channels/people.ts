@@ -24,7 +24,10 @@ export type EnrollOutcome =
   | { status: 'linked'; person: GaryUser; newUser: boolean }
   | { status: 'refused'; reason: 'no_code' | 'invalid_or_used' | 'bad_password' };
 
+/** A web sign-in lives as long as its cookie. Chat-app identities never expire. */
+export const WEB_SESSION_DAYS = 30;
 const RESOURCE_PREFIX = 'gary-user:';
+const LIVE_IDENTITY = '(i.expires_at IS NULL OR i.expires_at > ?)';
 const CODE_PATTERN = /\bGARY-[A-F0-9]{12}\b/;
 
 const SCHEMA = `
@@ -40,6 +43,7 @@ CREATE TABLE IF NOT EXISTS gary_channel_identities (
   external_id TEXT NOT NULL,
   user_id TEXT NOT NULL REFERENCES gary_users(id) ON DELETE CASCADE,
   linked_at TEXT NOT NULL,
+  expires_at TEXT,
   PRIMARY KEY (channel, external_id)
 );
 CREATE INDEX IF NOT EXISTS idx_gary_identities_user ON gary_channel_identities(user_id);
@@ -103,16 +107,16 @@ export async function personForResource(resourceId: string | undefined) {
 
 export async function identify(key: IdentityKey): Promise<GaryUser | undefined> {
   const row = (await (await db()).execute({
-    sql: 'SELECT u.* FROM gary_channel_identities i JOIN gary_users u ON u.id = i.user_id WHERE i.channel = ? AND i.external_id = ?',
-    args: [key.channel, key.externalId],
+    sql: `SELECT u.* FROM gary_channel_identities i JOIN gary_users u ON u.id = i.user_id WHERE i.channel = ? AND i.external_id = ? AND ${LIVE_IDENTITY}`,
+    args: [key.channel, key.externalId, new Date().toISOString()],
   })).rows[0];
   return row ? personFromRow(row) : undefined;
 }
 
 export async function linkedIdentities(userId: GaryUser['id']): Promise<ChannelIdentity[]> {
   const result = await (await db()).execute({
-    sql: 'SELECT channel, external_id, user_id FROM gary_channel_identities WHERE user_id = ? ORDER BY linked_at',
-    args: [userId],
+    sql: `SELECT channel, external_id, user_id FROM gary_channel_identities i WHERE user_id = ? AND ${LIVE_IDENTITY} ORDER BY linked_at`,
+    args: [userId, new Date().toISOString()],
   });
   return result.rows.map((row) => ({ channel: String(row.channel) as ChannelName, externalId: String(row.external_id), userId: String(row.user_id) }));
 }
@@ -138,6 +142,10 @@ async function insertCode(target: CodeTarget, ttlHours: number, bootstrap: boole
   return { code, expiresAt };
 }
 
+function identityExpiry(key: IdentityKey) {
+  return key.channel === 'web' ? new Date(Date.now() + WEB_SESSION_DAYS * 86_400_000).toISOString() : null;
+}
+
 function passwordMatches(password: string) {
   const expected = garyConfig().web.adminPassword;
   if (!expected) return false;
@@ -156,8 +164,8 @@ export async function enroll(key: IdentityKey, credential: Credential): Promise<
     if (!passwordMatches(credential.password)) return { status: 'refused', reason: 'bad_password' };
     const owner = (await admins())[0] ?? (await ensureOwner(), (await admins())[0]);
     await (await db()).execute({
-      sql: 'INSERT INTO gary_channel_identities (channel, external_id, user_id, linked_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING',
-      args: [key.channel, key.externalId, owner.id, new Date().toISOString()],
+      sql: 'INSERT INTO gary_channel_identities (channel, external_id, user_id, linked_at, expires_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
+      args: [key.channel, key.externalId, owner.id, new Date().toISOString(), identityExpiry(key)],
     });
     return { status: 'linked', person: owner, newUser: false };
   }
@@ -184,8 +192,8 @@ export async function enroll(key: IdentityKey, credential: Credential): Promise<
       });
     }
     await tx.execute({
-      sql: 'INSERT INTO gary_channel_identities (channel, external_id, user_id, linked_at) VALUES (?, ?, ?, ?)',
-      args: [key.channel, key.externalId, userId, now],
+      sql: 'INSERT INTO gary_channel_identities (channel, external_id, user_id, linked_at, expires_at) VALUES (?, ?, ?, ?, ?)',
+      args: [key.channel, key.externalId, userId, now, identityExpiry(key)],
     });
     await tx.commit();
     return { status: 'linked', person: (await getPerson(userId))!, newUser };
@@ -199,12 +207,13 @@ export async function unlink(key: IdentityKey) {
 }
 
 /**
- * Boot step. Creates the owner admin on first boot. While no admin has a
+ * Boot step. Drops expired web sign-ins, then creates the owner admin on first boot. While no admin has a
  * linked identity it replaces any unredeemed bootstrap code with a fresh one
  * for the caller to print, so every boot converges on exactly one live code.
  */
 export async function ensureOwner(): Promise<{ bootstrapCode?: string }> {
   const database = await db();
+  await database.execute({ sql: 'DELETE FROM gary_channel_identities WHERE expires_at <= ?', args: [new Date().toISOString()] });
   let [owner] = await admins();
   if (!owner) {
     const id = newId();

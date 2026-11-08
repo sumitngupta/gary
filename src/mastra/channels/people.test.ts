@@ -72,3 +72,17 @@ test('the admin password signs a browser in as the owner and nothing else', asyn
   const signedIn = await enroll({ channel: 'web', externalId: 'b1' }, { kind: 'owner-password', password: 'correct horse' });
   assert.deepEqual(signedIn.status === 'linked' && signedIn.person.role, 'admin');
 });
+
+test('a web sign-in stops identifying the browser after 30 days and is pruned at boot', async (t) => {
+  await isolated(t, { GARY_ADMIN_PASSWORD: 'correct horse' });
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-01-01T00:00:00Z') });
+  const browser = { channel: 'web' as const, externalId: 'b1' };
+  const phone = { channel: 'telegram' as const, externalId: '1001' };
+  await enroll(browser, { kind: 'owner-password', password: 'correct horse' });
+  await enroll(phone, { kind: 'code', text: (await issueCode({ kind: 'new-user', displayName: 'Alice', role: 'member' })).code });
+  t.mock.timers.setTime(Date.parse('2026-01-30T23:00:00Z'));
+  assert.deepEqual([(await identify(browser))?.role, (await identify(phone))?.displayName], ['admin', 'Alice']);
+  t.mock.timers.setTime(Date.parse('2026-01-31T00:00:01Z'));
+  assert.deepEqual([await identify(browser), (await identify(phone))?.displayName], [undefined, 'Alice']);
+  assert.match((await ensureOwner()).bootstrapCode ?? '', /^GARY-[0-9A-F]{12}$/);
+});
