@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { assertMutationAllowed, GaryConfigError, parseGaryConfig, requireService } from './gary-config';
+import { assertMutationAllowed, ENV_NAMES, GaryConfigError, parseGaryConfig, requireService } from './gary-config';
 
 const seerrOnly = { SEERR_URL: 'http://seerr.test:5055/', SEERR_API_KEY: 'seerr-key', LLM_API_KEY: 'llm-key' };
 
@@ -89,4 +90,13 @@ test('channels are enabled by presence and a partial WhatsApp block names what i
   assert.deepEqual(problems({ ...seerrOnly, GARY_WHATSAPP_ACCESS_TOKEN: 't', GARY_WHATSAPP_APP_SECRET: 's' }), [
     'WhatsApp is partly configured. Also set GARY_WHATSAPP_PHONE_NUMBER_ID, GARY_WHATSAPP_VERIFY_TOKEN, or unset the other GARY_WHATSAPP_* credentials.',
   ]);
+});
+
+test('.env.example documents every variable the config reads, and the example parses', () => {
+  const example = readFileSync(new URL('../../../.env.example', import.meta.url), 'utf8');
+  const documented = [...example.matchAll(/^#? ?([A-Z][A-Z0-9_]+)=/gm)].map((match) => match[1]);
+  assert.deepEqual([...documented].sort(), [...ENV_NAMES].sort());
+  const required = Object.fromEntries([...example.matchAll(/^([A-Z][A-Z0-9_]+)=(.*)$/gm)].map(([, name, value]) => [name, value || 'filled-in']));
+  assert.deepEqual(Object.keys(required), ['LLM_API_KEY', 'SEERR_URL', 'SEERR_API_KEY']);
+  assert.equal(parseGaryConfig(required).services.seerr?.url, 'http://seerr:5055');
 });

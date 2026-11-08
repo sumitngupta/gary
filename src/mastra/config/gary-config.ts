@@ -84,7 +84,7 @@ const envSchema = z.object({
 });
 
 type GaryEnv = z.infer<typeof envSchema>;
-const ENV_NAMES = Object.keys(envSchema.shape) as Array<keyof GaryEnv>;
+export const ENV_NAMES = Object.keys(envSchema.shape) as Array<keyof GaryEnv>;
 
 export type ModelSettings = {
   model: string;

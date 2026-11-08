@@ -1,0 +1,21 @@
+services:
+  gary:
+    build: .
+    image: gary:local
+    container_name: gary
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    ports:
+      - "4111:4111"
+    # To reach Seerr, Sonarr, Radarr and Plex by container name, join the
+    # network your media stack already runs on and use those names in .env
+    # (SEERR_URL=http://seerr:5055).
+    # networks:
+    #   - media
+
+# networks:
+#   media:
+#     external: true
+#     name: mediastack_default
