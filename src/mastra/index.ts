@@ -2,6 +2,7 @@ import { bootConfig } from './config/boot';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { Mastra } from '@mastra/core/mastra';
+import type { Middleware } from '@mastra/core/server';
 import { LibSQLStore } from '@mastra/libsql';
 import { PinoLogger } from '@mastra/loggers';
 import { garyAgent } from './agents/gary-agent';
@@ -31,6 +32,19 @@ mkdirSync(config.dataDir, { recursive: true });
 void ensureOwner().then(({ bootstrapCode }) => {
   if (bootstrapCode) console.info(`Gary admin setup: send ${bootstrapCode} to Gary from web chat, Telegram or WhatsApp to become the admin. It works once and a new one prints on each restart until used.`);
 }, (error) => console.error(`Gary could not prepare the admin account: ${error instanceof Error ? error.message : String(error)}`));
+
+const CHANNEL_WEBHOOK = /^\/api\/agents\/gary\/channels\/[a-z]+\/webhook$/;
+
+/**
+ * Mastra's built-in REST API can read any user's memory and run the agent
+ * outside the channel gate, so only channel webhooks are public. Everything
+ * else under /api needs GARY_ADMIN_TOKEN.
+ */
+const guardMastraApi: Extract<Middleware, { path: string }>['handler'] = async (c, next) => {
+  if (CHANNEL_WEBHOOK.test(c.req.path)) return next();
+  if (config.adminToken && c.req.header('authorization') === `Bearer ${config.adminToken}`) return next();
+  return c.json({ error: 'Not found' }, 404);
+};
 
 function isMediaRadarSchedule(agentId: string, metadata: unknown) {
   return agentId === 'gary' && (metadata as { kind?: string } | undefined)?.kind === 'gary-media-radar';
@@ -100,6 +114,7 @@ export const mastra = new Mastra({
   }),
   server: {
     port: config.port,
+    middleware: [{ path: '/api/*', handler: guardMastraApi }],
     apiRoutes: [
       healthzRoute,
       ...webRoutes,
