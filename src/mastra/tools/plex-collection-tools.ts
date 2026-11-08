@@ -16,6 +16,9 @@ async function ownership(ratingKey: string, actorId: string) {
   return owner === actorId ? 'caller' as const : owner ? 'other' as const : 'legacy' as const;
 }
 function normalize(value: string) { return value.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim(); }
+export async function restoreCollectionSnapshot(recreate: () => Promise<string>) {
+  try { return { restored: true as const, ratingKey: await recreate() }; } catch (error) { return { restored: false as const, error: error instanceof Error ? error.message : String(error) }; }
+}
 async function publicView(collection: PlexCollectionView, actorId: string) { return { ...collection, owner: await ownership(collection.ratingKey, actorId) }; }
 
 export const inspectPlexCollectionsTool = createTool({
@@ -111,11 +114,15 @@ export const executePlexCollectionChangeTool = createTool({
       await recordPlexCollectionEvent({ previewId, actorId, action: input.action, status: input.action === 'create' ? 'created' : 'updated', before, after, rollback: before });
       return { status: input.action === 'create' ? 'created' as const : 'updated' as const, collection: await publicView(after, actorId), summary: `${input.action === 'create' ? 'Created' : 'Updated'} ${after.title} with ${after.items.length} available title(s). ${preview.missing.length} missing title(s) were not requested. Media files and request records were unchanged.`, rollback: before ? 'The audit receipt retains the exact prior membership and metadata for owner recovery.' : 'Deleting this newly created collection restores the prior absent state.' };
     } catch (error) {
-      if (before && preview.collectionRatingKey && !(await listPlexCollections(input.mediaType)).some((item) => item.ratingKey === preview.collectionRatingKey)) {
-        try { const restored = await createPlexCollection({ title: before.title, summary: before.summary, mediaType: before.mediaType, sectionKey: before.sectionKey, ratingKeys: before.items.map((item) => item.ratingKey) }); await recordCollectionOwner(restored, actorId); } catch {}
-      }
-      await recordPlexCollectionEvent({ previewId, actorId, action: input.action, status: 'failed', before, rollback: before });
-      return { status: 'failed' as const, summary: `The collection change failed safely: ${error instanceof Error ? error.message : String(error)}`, rollback: before ? 'Automatic best-effort restoration was attempted from the frozen snapshot.' : undefined };
+      const restore = before && preview.collectionRatingKey && !(await listPlexCollections(input.mediaType)).some((item) => item.ratingKey === preview.collectionRatingKey)
+        ? await restoreCollectionSnapshot(async () => { const key = await createPlexCollection({ title: before.title, summary: before.summary, mediaType: before.mediaType, sectionKey: before.sectionKey, ratingKeys: before.items.map((item) => item.ratingKey) }); await recordCollectionOwner(key, actorId); return key; })
+        : undefined;
+      await recordPlexCollectionEvent({ previewId, actorId, action: input.action, status: restore && !restore.restored ? 'failed_restore_failed' : 'failed', before, after: restore ? { restore } : undefined, rollback: before });
+      const rollback = !before ? undefined
+        : !restore ? 'The original collection is still in Plex.'
+        : restore.restored ? 'The original collection was restored from the frozen snapshot.'
+        : `Restoring the original collection also failed (${restore.error}). The audit receipt keeps the prior membership for manual recovery.`;
+      return { status: 'failed' as const, summary: `The collection change failed: ${error instanceof Error ? error.message : String(error)}`, rollback };
     }
   },
 });
