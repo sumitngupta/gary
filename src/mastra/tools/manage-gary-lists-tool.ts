@@ -61,9 +61,8 @@ export const manageGaryListsInputSchema = z.discriminatedUnion('action', [
 
 const actions = manageGaryListsInputSchema.options.map((option) => option.shape.action.value);
 
-// OpenAI rejects a tool whose JSON Schema root is not `type: "object"`, which a
-// discriminated union compiles to (a bare `oneOf`). The model sees this flat
-// object; execute narrows it through manageGaryListsInputSchema.
+// OpenAI rejects a tool whose JSON Schema root is not `type: "object"`, and a
+// discriminated union compiles to a bare `oneOf`.
 export const manageGaryListsToolInputSchema = z.object({
   action: z.enum(actions as [typeof actions[number], ...typeof actions[number][]]),
   list: z.string().optional().describe('List name. Required for every action except overview and confirm-publish; add defaults to "Watchlist".'),

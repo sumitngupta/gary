@@ -244,8 +244,6 @@ export function enforceCompactGaryResponse(text: string) {
   const normalized = text.trim()
     .replace(/(?:^|\n)[^\n.!?]*(?:Great choice|Excellent choice|Awesome choice|Love that|Absolutely!)[^\n.!?]*[.!?]\s*/gi, '\n')
     .replace(/\n{3,}/g, '\n\n');
-  // Concision belongs in generation. Deleting paragraphs, questions or source
-  // lines here can hide a pending approval or silently truncate a title list.
   return normalized.trim();
 }
 

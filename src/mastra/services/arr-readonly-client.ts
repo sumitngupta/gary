@@ -504,9 +504,8 @@ async function cancelMatchingCommands(
   const active = commands.filter((command) =>
     command.id && ['queued', 'started'].includes(command.status || '') && matches(command)
   );
-  // Arr can return 409 when a running command has passed its cancellable
-  // phase. Deletion of the owning title is still the authoritative stop and
-  // must not be prevented by that advisory cancellation race.
+  // Arr answers 409 for a command that has already started; deleting the
+  // owning title still stops it.
   for (const command of active) await arrDelete(baseUrl, apiKey, `/api/v3/command/${command.id}`, [404, 409]);
   return active.map((command) => command.id!);
 }

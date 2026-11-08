@@ -57,7 +57,7 @@ export const previewPlexCollectionChangeTool = createTool({
       for (const result of resolutions.slice(0, input.add.length)) {
         const base = result.candidate;
         if (result.matches.length === 1) available.push({ ...base, ratingKey: result.matches[0].ratingKey, resolvedTitle: result.matches[0].title, resolvedYear: result.matches[0].year });
-        else if (result.matches.length === 0) { /* Classified against request state below. */ }
+        else if (result.matches.length === 0) {}
         else ambiguous.push({ ...base, reason: 'More than one exact Plex item matched.' });
       }
       const unresolvedAdds = resolutions.slice(0, input.add.length).filter((result) => result.matches.length === 0);
@@ -117,7 +117,7 @@ export const executePlexCollectionChangeTool = createTool({
       return { status: input.action === 'create' ? 'created' as const : 'updated' as const, collection: await publicView(after, actorId), summary: `${input.action === 'create' ? 'Created' : 'Updated'} ${after.title} with ${after.items.length} available title(s). ${preview.missing.length} missing title(s) were not requested. Media files and request records were unchanged.`, rollback: before ? 'The audit receipt retains the exact prior membership and metadata for owner recovery.' : 'Deleting this newly created collection restores the prior absent state.' };
     } catch (error) {
       if (before && preview.collectionRatingKey && !(await listPlexCollections(input.mediaType)).some((item) => item.ratingKey === preview.collectionRatingKey)) {
-        try { const restored = await createPlexCollection({ title: before.title, summary: before.summary, mediaType: before.mediaType, sectionKey: before.sectionKey, ratingKeys: before.items.map((item) => item.ratingKey) }); await recordCollectionOwner(restored, actorId); } catch { /* Audit captures rollback failure without masking the primary error. */ }
+        try { const restored = await createPlexCollection({ title: before.title, summary: before.summary, mediaType: before.mediaType, sectionKey: before.sectionKey, ratingKeys: before.items.map((item) => item.ratingKey) }); await recordCollectionOwner(restored, actorId); } catch {}
       }
       await recordPlexCollectionEvent({ previewId, actorId, action: input.action, status: 'failed', before, rollback: before });
       return { status: 'failed' as const, summary: `The collection change failed safely: ${error instanceof Error ? error.message : String(error)}`, rollback: before ? 'Automatic best-effort restoration was attempted from the frozen snapshot.' : undefined };

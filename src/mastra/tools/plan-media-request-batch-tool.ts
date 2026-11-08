@@ -43,9 +43,6 @@ export const planMediaRequestBatchTool = createTool({
     const batch = await createOperationBatch({ resourceId, threadId, requests: items, correlationId: channel?.messageId });
     const counts = { ready: items.filter((item) => item.disposition === 'ready').length, unchanged: items.filter((item) => item.disposition === 'unchanged').length, omitted: items.filter((item) => item.disposition === 'omitted').length };
     await appendOperationEvent({ correlationId: batch.correlationId, resourceId, threadId, batchId: batch.id, phase: 'batch-previewed', detail: { total: items.length, ...counts, completeSetConfirmed: parsed.completeSetConfirmed, estimatedStorage: 'unknown until releases are selected' } });
-    // Unresolved titles are explicitly omitted from the frozen preview. They
-    // must not prevent approval of the exact resolved subset when the user has
-    // confirmed this was the complete candidate list.
     const status = batchPreviewStatus(parsed.completeSetConfirmed, counts.ready, parsed.authorization);
     await checkpointOperationBatch(batch.id, { status, nextIndex: 0, results: [], failed: 0 });
     if (status === 'approved') await appendOperationEvent({

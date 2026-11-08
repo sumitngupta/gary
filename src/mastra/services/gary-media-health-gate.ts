@@ -37,13 +37,10 @@ export async function checkSabnzbdHealth({ url, apiKey }: ServiceEndpoint, fetch
     }
     return { healthy: true, detail: `Usenet download queue responded (${queue.status})` };
   } catch {
-    // Fetch errors can include the URL and its API key; never surface them.
     return { healthy: false, detail: 'Usenet download queue unavailable' };
   }
 }
 
-// Batch requests pause unless every configured acquisition component is
-// healthy. Components that are not configured are not part of the gate.
 const GATE_CHECKS: Partial<Record<MediaServiceName, (endpoint: ServiceEndpoint) => Promise<HealthCheck>>> = {
   seerr: reachable('seerr', 'request service'),
   sonarr: reachable('sonarr', 'TV automation'),

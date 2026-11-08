@@ -31,8 +31,6 @@ function partialSummary(name: string, completeness: TvCompleteness) {
   return `${lead} on ${serverName()} now. I'll message you here when ${formatSeasonList(pending)} ${pending.length === 1 ? 'finishes' : 'finish'}.`;
 }
 
-// Undefined means Sonarr does not manage the show, so Plex alone decides.
-// A Sonarr failure cannot prove completeness, so the watch is still created.
 async function requestedTvCompleteness(request: { title: string; year?: number; tmdbId?: number; seasonNumber?: number }) {
   try {
     const sonarr = await getSonarrSeriesStatus({ query: request.title, year: request.year, tmdbId: request.tmdbId });
@@ -57,8 +55,6 @@ export const createMediaAvailabilityWatchTool = createTool({
     const request = mediaAvailabilityWatchInputSchema.parse(input);
     const resourceId = context.agent?.resourceId || request.resourceId;
     const threadId = context.agent?.threadId || request.threadId;
-    // This tool is an explicit notification opt-in. Route from the bound chat,
-    // never from the model's channel argument (which can be `none` or stale).
     const channel = resourceId?.startsWith('whatsapp:') ? 'whatsapp'
       : resourceId?.startsWith('telegram:') ? 'telegram' : 'none';
     const channelContext = context.requestContext?.get('channel') as { messageId?: string } | undefined;

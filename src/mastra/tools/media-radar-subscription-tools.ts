@@ -48,9 +48,8 @@ export const manageMediaRadarSubscriptionsTool = createTool({
       const constraints = input.constraints || [];
       const shortlistSize = input.shortlistSize || 5;
       const provisionalId = `radar-${Date.now()}`;
-      // Channel-backed threads can render agent signals to the user. Run the
-      // scheduled research in a private thread and deliver only its final
-      // digest to the originating conversation in deliverMediaRadar.
+      // Mastra Channels render agent signals in channel-backed threads, so
+      // scheduled research runs in a private thread.
       const executionThreadId = `gary-radar:${provisionalId}`;
       if (executionThreadId !== threadId) {
         const memory = await context.mastra.getAgent('gary').getMemory();

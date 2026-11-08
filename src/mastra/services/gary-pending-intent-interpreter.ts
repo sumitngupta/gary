@@ -18,10 +18,6 @@ export async function interpretRoutinePendingIntent(
   intent: PendingIntent,
   agent: SemanticAgent = garyPendingIntentInterpreterAgent,
 ) {
-  // The model may only select one already-frozen option. Safety comes from the
-  // option set and the downstream typed executor, not from requiring every new
-  // conversational question to be added to a kind-name allowlist. Sensitive
-  // mutations deliberately keep their stricter explicit-confirmation path.
   if (!pendingIntentAllowsSemanticInterpretation(intent)) return { decision: 'unsupported' as const };
   const result = await agent.generate(
     `Pending question: ${JSON.stringify(intent.question)}\nAllowed options: ${JSON.stringify(intent.options.map(({ key, label, aliases }) => ({ key, label, aliases })))}\nUser reply: ${JSON.stringify(text)}`,

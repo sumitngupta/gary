@@ -20,6 +20,4 @@ test('batch approval records still require the planner-owned path', () => {
     question: 'Approve?',
     options: [{ key: 'approve', label: 'Approve' }],
   }).success, true);
-  // Runtime ownership is enforced by the tool because the planner-created
-  // pending record must be inspected before accepting or rejecting the call.
 });

@@ -56,7 +56,6 @@ test('notification follow-up upgrades the same internal watch despite model chan
   assert.equal(watches[0].channel, 'whatsapp');
   assert.equal(watches[0].dirty, true);
   assert.match(result.summary, /will message you here/);
-  // Repeated opt-in must neither duplicate nor reroute the subscription.
   assert.equal((await invoke('telegram')).watchId, internal.watch.id);
   assert.equal((await listMediaAvailabilityWatches()).length, 1);
 });

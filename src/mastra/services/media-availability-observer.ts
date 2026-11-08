@@ -135,8 +135,6 @@ async function snapshotAvailability(watch: MediaAvailabilityWatch): Promise<Medi
       year: watch.year,
       seasonNumber: watch.seasonNumber,
     });
-    // Plex counts a show as streamable once any episode is playable. A TV watch
-    // only completes when every aired episode in its requested scope has a file.
     const sonarr = watch.mediaType === 'tv' && availability.streamable
       ? await getSonarrSeriesStatus({ query: watch.title, year: watch.year, tmdbId: watch.tmdbId })
       : undefined;
@@ -223,9 +221,6 @@ export async function checkMediaAvailabilityWatch(watch: MediaAvailabilityWatch,
   if (mediaLifecycleChanged(watch.lastSnapshot, snapshot)) {
     await appendOperationEvent({ correlationId, resourceId: watch.resourceId, threadId: watch.threadId, phase: snapshot.status, detail: { watchId: watch.id, availableInLibrary: snapshot.availableInLibrary, progress: snapshot.progress } });
   }
-  // An active watch remains due until an availability delivery succeeds and
-  // changes its status to notified. Issue alerts must not suppress that final
-  // user-facing availability message.
   const notify = snapshot.availableInLibrary;
 
   const fingerprint = issueFingerprint(snapshot);
@@ -274,9 +269,6 @@ export async function checkMediaAvailabilityWatch(watch: MediaAvailabilityWatch,
     };
   }
 
-  // Every successful request gets an internal lifecycle watch, even when the
-  // requester did not ask for a notification. Completing that watch records
-  // Plex verification without trying to deliver to a synthetic channel.
   if (watch.channel === 'none') {
     await updateMediaAvailabilityWatch(watch.id, {
       status: 'available',

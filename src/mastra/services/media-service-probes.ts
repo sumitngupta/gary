@@ -12,8 +12,6 @@ async function getJson<T>(fetchFn: FetchLike, url: string, headers?: Record<stri
 const arrStatus = (apiVersion: 'v1' | 'v3'): Probe => async ({ url, apiKey }, fetchFn) =>
   (await getJson<{ version?: string }>(fetchFn, `${url}/api/${apiVersion}/system/status`, { 'X-Api-Key': apiKey })).version || 'unknown version';
 
-// Each probe is one or two GET requests that prove the URL answers and the
-// credential is accepted, and returns the service version.
 export const SERVICE_PROBES: Record<MediaServiceName, Probe> = {
   seerr: async ({ url, apiKey }, fetchFn) => {
     await getJson(fetchFn, `${url}/api/v1/auth/me`, { 'X-Api-Key': apiKey });

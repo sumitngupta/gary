@@ -93,7 +93,6 @@ async function seerrHttpError(response: Response) {
       }
     }
   } catch {
-    // The status code remains useful even when the response body cannot be read.
   }
 
   const safeDetail = detail.replace(/\s+/g, ' ').trim().slice(0, 300);
@@ -234,12 +233,9 @@ export async function blockSeerrMedia(input: {
   tmdbId: number;
   title: string;
 }) {
-  // Seerr's request deletion changes the associated Media status to DELETED.
-  // Merely leaving an existing Blocklist row therefore creates a split-brain
-  // state: the UI shows a tombstone while Plex Watchlist Sync sees DELETED and
-  // auto-requests the title again. Removing an existing blocklist also removes
-  // its associated media/request graph; recreating it last makes BLOCKLISTED
-  // the authoritative final Media status.
+  // Seerr sets Media to DELETED when its requests are removed, and Plex
+  // Watchlist Sync re-requests DELETED titles. Recreating the blocklist entry
+  // last leaves BLOCKLISTED as the final Media status.
   try {
     await seerrFetch<void>(`/api/v1/blocklist/${input.tmdbId}?mediaType=${input.mediaType}`, {
       method: 'DELETE',

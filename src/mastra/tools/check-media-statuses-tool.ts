@@ -99,8 +99,6 @@ export async function checkMediaStatuses(input: z.input<typeof inputSchema>) {
       if (plex.status === 'service-unavailable' || media.status === 'service-unavailable') {
         return { ...base, status: 'service-unavailable' as const, summary: `Could not complete the current ${serverName()} checks for ${item.title}.` };
       }
-      // A Plex show match proves that some episodes exist, not that the
-      // complete series is available. Preserve the catalog's partial state.
       if (media.mediaStatus?.label === 'partially available') {
         const count = plex.matches[0]?.episodeCount;
         return { ...base, status: 'partially-available' as const, summary: `${resolvedTitle || item.title}${resolvedYear ? ` (${resolvedYear})` : ''} is partially available in ${serverName()}.${count !== undefined ? ` Plex currently has ${count} episodes.` : ''}` };

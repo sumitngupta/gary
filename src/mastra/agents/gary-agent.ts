@@ -341,9 +341,6 @@ const garyWhatsAppHandler: ChannelHandler = async (thread, message, defaultHandl
   });
 };
 
-// Scheduled radars need enough room for discovery, finalist evidence, one
-// batch status check, delivery recording, and a final answer. Production runs
-// exhausted 18 steps even with the bounded prompt contract.
 const GARY_MAX_STEPS = 24;
 
 const garyRareTools = {
@@ -383,9 +380,6 @@ export const garyAgent = new Agent({
   description:
     'Media concierge for safe content request intake, requester notifications, and future media-stack operations.',
   model: garyLanguageModel(),
-  // Scheduled recommendation runs routinely need search, library filtering,
-  // deduplication, and a final response. Mastra's small default step budget
-  // can stop after the tools without producing a deliverable digest.
   defaultOptions: { maxSteps: GARY_MAX_STEPS, providerOptions: garyProviderOptions() },
   memory: garyMemory,
   skills: [garyMediaConciergeSkill, garyLinkedMediaResearchSkill, garyHouseholdCommunicationSkill, garyMediaRepairSkill],

@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
-// Several Gary stores resolve their file paths at import time.
 const dataDir = mkdtempSync(join(tmpdir(), 'gary-privacy-'));
 process.env.GARY_DATA_DIR = dataDir;
 after(() => rmSync(dataDir, { recursive: true, force: true }));

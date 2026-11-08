@@ -259,8 +259,6 @@ export function parseGaryConfig(rawEnv: Record<string, string | undefined>): Gar
 
 let cached: { fingerprint: string; config: GaryConfig } | undefined;
 
-// The environment is fixed in a running server, so this parses once. Tests
-// rewrite process.env between cases; the fingerprint picks those changes up.
 export function garyConfig(): GaryConfig {
   const fingerprint = ENV_NAMES.map((name) => process.env[name] ?? '\u0001').join('\u0000');
   if (cached?.fingerprint !== fingerprint) cached = { fingerprint, config: parseGaryConfig(process.env) };

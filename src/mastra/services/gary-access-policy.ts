@@ -223,8 +223,6 @@ function operationKey(toolName: string, input: unknown) {
   return createHash('sha256').update(`${toolName}:${JSON.stringify(input)}`).digest('hex').slice(0, 24);
 }
 
-// List edits are cheap personal bookkeeping, so they get their own roomier
-// quota than mutations that touch the media server or other people.
 function quotaFor(categoryName: GaryPolicyDecision['category']) {
   const { dailyListLimit, dailyMutationLimit } = garyConfig().whatsapp;
   return categoryName === 'list' ? dailyListLimit : dailyMutationLimit;

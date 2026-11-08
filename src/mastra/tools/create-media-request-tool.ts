@@ -132,9 +132,6 @@ async function resolveCanonicalRequest(request: ReturnType<typeof mediaRequestCr
       tmdbId: result.id,
     }));
 
-  // Seerr orders search results by relevance. Multiple TMDB entries can share
-  // an exact title and year, so use the first exact result just as the status
-  // lookup does. Prefer a supplied TMDB id when the preceding lookup has one.
   const selected = selectCanonicalRequestCandidate(request, candidates);
 
   if (!selected) {
@@ -271,9 +268,6 @@ export async function createMediaRequest(input: unknown): Promise<MediaRequestCr
         profileId: resolveMediaRequestQualityProfile(request),
       });
       if (!created?.id) created = (await findSeerrRequestReceipt(request.mediaType, request.tmdbId))!;
-      // Some Seerr failures are transient and return no usable body before the
-      // request is persisted. Reconcile first, then retry the idempotent exact
-      // request once and perform the same bounded read-back.
       if (!created?.id) {
         try {
           created = await createSeerrRequest({
@@ -283,8 +277,6 @@ export async function createMediaRequest(input: unknown): Promise<MediaRequestCr
             profileId: resolveMediaRequestQualityProfile(request),
           });
         } catch {
-          // A duplicate/conflict response can mean the first request landed;
-          // the exact read-back below remains the source of truth.
         }
         if (!created?.id) created = (await findSeerrRequestReceipt(request.mediaType, request.tmdbId))!;
       }

@@ -6,8 +6,7 @@ import {
 } from '../services/media-availability-watch-store';
 import { garyConfig } from '../config/gary-config';
 
-// Without GARY_MEDIA_EVENTS_TOKEN these routes stay closed. Arr and Plex
-// webhooks cannot send headers everywhere, so ?token= is accepted too.
+// Plex webhooks cannot set an Authorization header, so ?token= is accepted too.
 export function isAuthorized(authorization: string | undefined, token: string | undefined) {
   const expected = garyConfig().mediaEventsToken;
   if (!expected) return false;
