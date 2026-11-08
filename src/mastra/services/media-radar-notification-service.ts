@@ -46,19 +46,6 @@ export async function deliverMediaRadar(scheduleId: string, text: string) {
     if (!response.ok || !body.ok || !body.result?.message_id) throw new Error(`Telegram delivery was not accepted (HTTP ${response.status}).`);
   }
 
-  if (subscription.channel === 'slack') {
-    const token = garyConfig().slackBotToken;
-    const [, channel, threadTs] = subscription.threadId.split(':');
-    if (!token || !channel) throw new Error('Slack delivery is not configured for this radar.');
-    const response = await fetch('https://slack.com/api/chat.postMessage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ channel, text, ...(threadTs ? { thread_ts: threadTs } : {}) }),
-    });
-    const body = await response.json().catch(() => undefined) as { ok?: boolean; error?: string } | undefined;
-    if (!response.ok || !body?.ok) throw new Error(`Slack delivery failed: ${body?.error || `HTTP ${response.status}`}`);
-  }
-
   if (subscription.channel === 'whatsapp') {
     await sendWhatsAppMediaRadar(subscription.resourceId, text);
   }

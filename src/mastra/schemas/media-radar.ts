@@ -29,7 +29,7 @@ export const mediaRadarPreferencesSchema = z.object({
   preferredGenres: z.array(z.string().min(1)).default([]),
   blockedGenres: z.array(z.string().min(1)).default([]),
   includeAlreadyKnown: z.boolean().default(false),
-  deliveryChannel: z.enum(['telegram', 'slack', 'whatsapp', 'none']).default('telegram'),
+  deliveryChannel: z.enum(['telegram', 'whatsapp', 'none']).default('telegram'),
 });
 
 export type MediaRadarPreferences = z.infer<typeof mediaRadarPreferencesSchema>;

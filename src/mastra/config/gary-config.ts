@@ -84,7 +84,6 @@ const envSchema = z.object({
   GARY_WHATSAPP_MEDIA_AVAILABLE_TEMPLATE: z.string().default('gary_media_available'),
   GARY_WHATSAPP_MEDIA_BATCH_TEMPLATE: z.string().default('gary_tracked_titles_available'),
   GARY_TELEGRAM_BOT_TOKEN: text,
-  SLACK_BOT_TOKEN: text,
 
   EXA_API_KEY: text,
   BRIGHTDATA_API_TOKEN: text,
@@ -142,7 +141,6 @@ export type GaryConfig = {
     templates: { mediaAvailable: string; mediaBatch: string };
   };
   telegramBotToken?: string;
-  slackBotToken?: string;
   webLookup: {
     exaApiKey?: string;
     brightData: { apiToken?: string; serpZone: string; webUnlockerZone?: string };
@@ -249,7 +247,6 @@ export function parseGaryConfig(rawEnv: Record<string, string | undefined>): Gar
       templates: { mediaAvailable: env.GARY_WHATSAPP_MEDIA_AVAILABLE_TEMPLATE, mediaBatch: env.GARY_WHATSAPP_MEDIA_BATCH_TEMPLATE },
     },
     telegramBotToken: env.GARY_TELEGRAM_BOT_TOKEN,
-    slackBotToken: env.SLACK_BOT_TOKEN,
     webLookup: {
       exaApiKey: env.EXA_API_KEY,
       brightData: { apiToken: env.BRIGHTDATA_API_TOKEN, serpZone: env.BRIGHTDATA_SERP_ZONE, webUnlockerZone: env.BRIGHTDATA_WEB_UNLOCKER_ZONE },

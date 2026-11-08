@@ -48,7 +48,7 @@ export const mediaAvailabilityWatchSchema = z.object({
   requester: z.string().min(1).default('admin'),
   resourceId: z.string().min(1),
   threadId: z.string().min(1),
-  channel: z.enum(['telegram', 'slack', 'whatsapp', 'none']).default('telegram'),
+  channel: z.enum(['telegram', 'whatsapp', 'none']).default('telegram'),
   status: z.enum(['active', 'available', 'delivery-pending', 'notified', 'cancelled', 'expired']).default('active'),
   dirty: z.boolean().default(true),
   createdAt: z.string(),
@@ -80,7 +80,7 @@ export const mediaAvailabilityWatchInputSchema = z.object({
   resourceId: z.string().min(1).optional(),
   threadId: z.string().min(1).optional(),
   correlationId: z.string().optional(),
-  channel: z.enum(['telegram', 'slack', 'whatsapp', 'none']).default('telegram'),
+  channel: z.enum(['telegram', 'whatsapp', 'none']).default('telegram'),
 });
 
 export const mediaAvailabilityWatchOutputSchema = z.object({
@@ -92,7 +92,7 @@ export const mediaAvailabilityWatchOutputSchema = z.object({
   seasonNumber: z.number().int().optional(),
   resourceId: z.string().optional(),
   threadId: z.string().optional(),
-  channel: z.enum(['telegram', 'slack', 'whatsapp', 'none']),
+  channel: z.enum(['telegram', 'whatsapp', 'none']),
   summary: z.string(),
 });
 

@@ -26,7 +26,7 @@ export const manageMediaRadarSubscriptionsTool = createTool({
   inputSchema: z.object({
     action: z.enum(['create', 'list', 'update', 'pause', 'resume', 'run', 'cancel']),
     subscriptionId: z.string().optional(), name: z.string().min(1).optional(), theme: z.string().min(1).optional(),
-    cron: z.string().min(1).optional(), timezone: z.string().min(1).optional(), channel: z.enum(['telegram', 'slack', 'whatsapp', 'none']).optional(),
+    cron: z.string().min(1).optional(), timezone: z.string().min(1).optional(), channel: z.enum(['telegram', 'whatsapp', 'none']).optional(),
     quietHours: z.object({ start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/) }).optional(),
     preferredGenres: z.array(z.string()).optional(), blockedGenres: z.array(z.string()).optional(), constraints: z.array(z.string()).optional(), shortlistSize: z.number().int().min(1).max(20).optional(),
   }),
@@ -62,7 +62,7 @@ export const manageMediaRadarSubscriptionsTool = createTool({
       }
       const schedule = await context.mastra.schedules.create({ id: provisionalId, agentId: 'gary', name: input.name || theme, cron: input.cron, timezone, resourceId, threadId: executionThreadId, prompt: mediaRadarSchedulePrompt({ subscriptionId: provisionalId, theme, constraints, preferredGenres, blockedGenres, shortlistSize }), metadata: { kind: 'gary-media-radar' } });
       try {
-        const item = await createMediaRadarSubscription({ scheduleId: schedule.id, name: input.name || theme, requester: resourceId, resourceId, threadId, channel: input.channel || (resourceId.startsWith('slack:') || threadId.startsWith('slack:') ? 'slack' : resourceId.startsWith('telegram:') ? 'telegram' : resourceId.startsWith('whatsapp:') ? 'whatsapp' : 'none'), theme, cron: input.cron, timezone, quietHours: input.quietHours, preferredGenres, blockedGenres, constraints, shortlistSize });
+        const item = await createMediaRadarSubscription({ scheduleId: schedule.id, name: input.name || theme, requester: resourceId, resourceId, threadId, channel: input.channel || (resourceId.startsWith('telegram:') ? 'telegram' : resourceId.startsWith('whatsapp:') ? 'whatsapp' : 'none'), theme, cron: input.cron, timezone, quietHours: input.quietHours, preferredGenres, blockedGenres, constraints, shortlistSize });
         await context.mastra.schedules.update(schedule.id, { prompt: mediaRadarSchedulePrompt({ subscriptionId: item.id, theme, constraints, preferredGenres, blockedGenres, shortlistSize }) });
         const quiet = item.quietHours ? ` Quiet hours: ${item.quietHours.start}-${item.quietHours.end}.` : '';
         return { status: 'created', subscriptionId: item.id, summary: `Created ${item.name}: ${item.cron} (${item.timezone}), delivered to this chat.${quiet} Say “pause ${item.name}” or “cancel ${item.name}” anytime.` };
