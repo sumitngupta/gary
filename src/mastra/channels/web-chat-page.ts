@@ -19,6 +19,7 @@ input { flex: 1; min-width: 0; font: inherit; color: inherit; background: transp
 button { font: inherit; border: 1px solid var(--accent); color: var(--accent); background: transparent; border-radius: .5rem; padding: .6rem 1rem; cursor: pointer; }
 button:disabled { opacity: .5; cursor: progress; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a { color: var(--accent); }
 #log { flex: 1; display: flex; flex-direction: column; gap: .75rem; }
 .msg { white-space: pre-wrap; padding: .6rem .8rem; border-radius: .6rem; border: 1px solid var(--line); }
 .msg.user { background: var(--me); align-self: flex-end; max-width: 85%; }
@@ -64,10 +65,33 @@ function show(view) {
   (view === 'login' ? $('secret') : $('prompt')).focus();
 }
 
+function render(node, text) {
+  node.replaceChildren();
+  const pattern = /\\*\\*([^*]+)\\*\\*|\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)|\\*([^*\\s][^*]*)\\*/g;
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    node.append(text.slice(last, match.index));
+    if (match[1] || match[4]) {
+      const emphasis = document.createElement(match[1] ? 'strong' : 'em');
+      emphasis.textContent = match[1] || match[4];
+      node.append(emphasis);
+    } else {
+      const link = document.createElement('a');
+      link.textContent = match[2];
+      link.href = match[3];
+      link.rel = 'noopener noreferrer';
+      link.target = '_blank';
+      node.append(link);
+    }
+    last = match.index + match[0].length;
+  }
+  node.append(text.slice(last));
+}
+
 function bubble(role, text) {
   const node = document.createElement('div');
   node.className = 'msg ' + role;
-  node.textContent = text;
+  render(node, text);
   $('log').append(node);
   node.scrollIntoView({ block: 'end' });
   return node;
@@ -100,13 +124,13 @@ async function send(text) {
         const data = event.split('\\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('');
         if (!data || data === '[DONE]') continue;
         const chunk = JSON.parse(data);
-        if (chunk.type === 'text-delta') { full += chunk.delta; reply.textContent = full; }
+        if (chunk.type === 'text-delta') { full += chunk.delta; render(reply, full); }
         if (chunk.type === 'text-end' && full && !full.endsWith('\\n')) { full += '\\n\\n'; }
         if (chunk.type === 'error') throw new Error(chunk.errorText);
       }
     }
     full = full.trim();
-    reply.textContent = full || '(no reply)';
+    render(reply, full || '(no reply)');
     messages.push({ id: crypto.randomUUID(), role: 'assistant', parts: [{ type: 'text', text: full }] });
   } catch (error) {
     reply.classList.add('error');
