@@ -4,6 +4,7 @@ import {
   type WebFetchedPage,
   type WebSearchResult,
 } from '../schemas/web-lookup';
+import { garyConfig } from '../config/gary-config';
 
 const EXA_SEARCH_URL = 'https://api.exa.ai/search';
 const EXA_CONTENTS_URL = 'https://api.exa.ai/contents';
@@ -68,14 +69,11 @@ function clampInteger(value: number | undefined, fallback: number, min: number, 
 }
 
 function exaApiKey() {
-  return process.env.EXA_API_KEY;
+  return garyConfig().webLookup.exaApiKey;
 }
 
 function brightDataConfig() {
-  const apiToken = process.env.BRIGHTDATA_API_TOKEN;
-  const serpZone = process.env.BRIGHTDATA_SERP_ZONE || 'serp_api1';
-  const webUnlockerZone = process.env.BRIGHTDATA_WEB_UNLOCKER_ZONE;
-  return { apiToken, serpZone, webUnlockerZone };
+  return garyConfig().webLookup.brightData;
 }
 
 function isHttpUrl(value: unknown) {

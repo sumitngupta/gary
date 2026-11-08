@@ -2,11 +2,12 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getGaryHouseholdContext, updateGaryHouseholdContext } from '../services/gary-household-context-store';
 import { serverName } from '../config/branding';
+import { garyConfig } from '../config/gary-config';
 
 export function isGaryHouseholdContextOwner(resourceId: string) {
   if (resourceId === 'admin-household') return true;
   const actor = resourceId.includes(':') ? resourceId.slice(resourceId.indexOf(':') + 1).replace(/\D/g, '') : resourceId;
-  return (process.env.GARY_MEDIA_OWNER_ACTORS || '').split(',').map((value) => value.replace(/\D/g, '')).filter(Boolean).includes(actor);
+  return garyConfig().owners.actors.map((value) => value.replace(/\D/g, '')).filter(Boolean).includes(actor);
 }
 export const manageGaryHouseholdContextTool = createTool({
   id: 'manage-gary-household-context', description: `Read canonical household recommendation constraints, or let ${serverName()} media owner update explicit viewer ages, shared tastes, boundaries, and the honest intensity-caveat policy.`,

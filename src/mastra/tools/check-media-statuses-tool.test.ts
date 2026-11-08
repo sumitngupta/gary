@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { checkMediaStatuses } from './check-media-statuses-tool';
@@ -9,12 +9,10 @@ test('three playable episodes do not turn a partially available series into a co
   const dir = await mkdtemp(join(tmpdir(), 'gary-partial-tv-'));
   const previousEnv = { ...process.env };
   const previousFetch = globalThis.fetch;
-  const settings = join(dir, 'settings.json');
-  await writeFile(settings, JSON.stringify({ main: { apiKey: 'fixture-key' } }));
-  process.env.GARY_SEERR_SETTINGS_PATH = settings;
-  process.env.GARY_SEERR_URL = 'http://fixture-seerr';
-  process.env.GARY_PLEX_URL = 'http://fixture-plex';
-  process.env.GARY_PLEX_TOKEN = 'fixture-token';
+  process.env.SEERR_API_KEY = 'fixture-key';
+  process.env.SEERR_URL = 'http://fixture-seerr';
+  process.env.PLEX_URL = 'http://fixture-plex';
+  process.env.PLEX_TOKEN = 'fixture-token';
   let catalogStatus = 4;
   globalThis.fetch = (async (input, init) => {
     assert.equal(init?.method || 'GET', 'GET');

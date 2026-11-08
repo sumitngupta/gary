@@ -1,8 +1,7 @@
-const DEFAULT_SERVER_NAME = 'the media server';
-const DEFAULT_ADMIN_NAME = 'the admin';
+import { garyConfig } from './gary-config';
 
 export function serverName() {
-  return process.env.GARY_SERVER_NAME?.trim() || DEFAULT_SERVER_NAME;
+  return garyConfig().serverName;
 }
 
 export function serverNameTitle() {
@@ -15,5 +14,5 @@ export function serverNamePattern() {
 }
 
 export function adminName() {
-  return process.env.GARY_ADMIN_NAME?.trim() || DEFAULT_ADMIN_NAME;
+  return garyConfig().adminName;
 }

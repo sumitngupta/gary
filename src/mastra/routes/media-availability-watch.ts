@@ -4,13 +4,13 @@ import {
   listMediaAvailabilityWatches,
   markMatchingMediaAvailabilityWatchesDirty,
 } from '../services/media-availability-watch-store';
+import { garyConfig } from '../config/gary-config';
 
-function isAuthorized(authorization: string | undefined, token: string | undefined) {
-  const expected = process.env.GARY_MEDIA_EVENTS_TOKEN;
-  if (!expected) {
-    return true;
-  }
-
+// Without GARY_MEDIA_EVENTS_TOKEN these routes stay closed. Arr and Plex
+// webhooks cannot send headers everywhere, so ?token= is accepted too.
+export function isAuthorized(authorization: string | undefined, token: string | undefined) {
+  const expected = garyConfig().mediaEventsToken;
+  if (!expected) return false;
   return authorization === `Bearer ${expected}` || token === expected;
 }
 

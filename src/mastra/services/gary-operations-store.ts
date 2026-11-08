@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createClient, type Client } from '@libsql/client';
 import { pendingIntentRequiresExplicitText } from './gary-pending-intent-policy';
+import { garyConfig } from '../config/gary-config';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS gary_pending_intents (
@@ -47,7 +48,7 @@ let initPromise: Promise<Client> | undefined;
 async function db() {
   if (client) return client;
   initPromise ??= (async () => {
-    const path = `${process.env.GARY_DATA_DIR || './data'}/gary-operations.db`;
+    const path = `${garyConfig().dataDir}/gary-operations.db`;
     await mkdir(dirname(path), { recursive: true });
     const next = createClient({ url: `file:${path}`, timeout: 5_000 });
     await next.executeMultiple(SCHEMA);

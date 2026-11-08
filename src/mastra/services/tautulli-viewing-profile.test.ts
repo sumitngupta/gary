@@ -6,8 +6,8 @@ import test from 'node:test';
 import { checkViewingTitles, connectTautulliUser, disconnectViewingHistory, findTautulliUserMatches, getCompactViewingProfile, reconcileGaryViewingProfile, refreshViewingProfile, resetTautulliViewingForTests } from './tautulli-viewing-profile';
 
 test('derives a bounded isolated taste profile and deterministic watched index', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'gary-viewing-')); const priorDir = process.env.GARY_DATA_DIR; const priorKey = process.env.GARY_TAUTULLI_API_KEY; const priorFetch = globalThis.fetch;
-  process.env.GARY_DATA_DIR = dir; process.env.GARY_TAUTULLI_API_KEY = 'test'; resetTautulliViewingForTests();
+  const dir = await mkdtemp(join(tmpdir(), 'gary-viewing-')); const priorDir = process.env.GARY_DATA_DIR; const priorKey = process.env.TAUTULLI_API_KEY; const priorFetch = globalThis.fetch;
+  process.env.GARY_DATA_DIR = dir; process.env.TAUTULLI_API_KEY = 'test'; process.env.TAUTULLI_URL = 'http://tautulli.test'; resetTautulliViewingForTests();
   globalThis.fetch = (async (input) => {
     const cmd = new URL(String(input)).searchParams.get('cmd');
     const data = cmd === 'get_users'
@@ -26,5 +26,5 @@ test('derives a bounded isolated taste profile and deterministic watched index',
     const watched = await checkViewingTitles('whatsapp:1', [{ title: 'Arrival', year: 2016 }, { title: 'Heat', year: 1995 }]); assert.equal(watched[0]?.watched, true); assert.equal(watched[1]?.watched, false);
     assert.equal(await getCompactViewingProfile('whatsapp:2'), undefined);
     assert.equal(await disconnectViewingHistory('whatsapp:1'), 2);
-  } finally { globalThis.fetch = priorFetch; resetTautulliViewingForTests(); if (priorDir === undefined) delete process.env.GARY_DATA_DIR; else process.env.GARY_DATA_DIR = priorDir; if (priorKey === undefined) delete process.env.GARY_TAUTULLI_API_KEY; else process.env.GARY_TAUTULLI_API_KEY = priorKey; await rm(dir,{recursive:true,force:true}); }
+  } finally { globalThis.fetch = priorFetch; resetTautulliViewingForTests(); if (priorDir === undefined) delete process.env.GARY_DATA_DIR; else process.env.GARY_DATA_DIR = priorDir; delete process.env.TAUTULLI_URL; if (priorKey === undefined) delete process.env.TAUTULLI_API_KEY; else process.env.TAUTULLI_API_KEY = priorKey; await rm(dir,{recursive:true,force:true}); }
 });

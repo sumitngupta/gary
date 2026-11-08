@@ -1,40 +1,48 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import { transcribeWhatsAppVoice } from './whatsapp-voice-transcription';
-import { serverName } from '../config/branding';
 
-test('sends WhatsApp voice data to the transcription endpoint', async () => {
-  const previous = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
-  try {
-    const calls: Array<{ url: string; authorization: string | null; body: FormData }> = [];
-    const fakeFetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      calls.push({
-        url: String(input),
-        authorization: new Headers(init?.headers).get('authorization'),
-        body: init?.body as FormData,
-      });
-      return Response.json({ text: `Please check whether Heat is in ${serverName()}.` });
-    }) as typeof fetch;
-    const transcript = await transcribeWhatsAppVoice(Buffer.from('voice bytes'), 'audio/ogg', fakeFetch);
-    assert.equal(transcript, `Please check whether Heat is in ${serverName()}.`);
-    assert.equal(calls[0]?.url, 'https://api.openai.com/v1/audio/transcriptions');
-    assert.equal(calls[0]?.authorization, 'Bearer test-key');
-    assert.equal(calls[0]?.body.get('model'), 'gpt-4o-mini-transcribe');
-  } finally {
-    if (previous === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previous;
+function useEnv(t: TestContext, values: Record<string, string | undefined>) {
+  const previous = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
+  for (const [name, value] of Object.entries(values)) {
+    if (value === undefined) delete process.env[name]; else process.env[name] = value;
   }
+  t.after(() => {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  });
+}
+
+function recordingFetch() {
+  const calls: Array<{ url: string; authorization: string | null; model: FormDataEntryValue | null }> = [];
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(input), authorization: new Headers(init?.headers).get('authorization'), model: (init?.body as FormData).get('model') });
+    return Response.json({ text: ' Please check whether Heat is available. ' });
+  }) as typeof fetch;
+  return { calls, fetchImpl };
+}
+
+test('sends voice data to the OpenAI transcription endpoint with the LLM key', async (t) => {
+  useEnv(t, { LLM_API_KEY: 'test-key', LLM_BASE_URL: undefined, LLM_TRANSCRIBE_MODEL: undefined });
+  const { calls, fetchImpl } = recordingFetch();
+  assert.equal(await transcribeWhatsAppVoice(Buffer.from('voice bytes'), 'audio/ogg', fetchImpl), 'Please check whether Heat is available.');
+  assert.deepEqual(calls, [{ url: 'https://api.openai.com/v1/audio/transcriptions', authorization: 'Bearer test-key', model: 'gpt-4o-mini-transcribe' }]);
 });
 
-test('rejects empty and oversized voice messages before calling OpenAI', async () => {
-  const previous = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_API_KEY = 'test-key';
-  try {
-    await assert.rejects(() => transcribeWhatsAppVoice(Buffer.alloc(0)), /empty/);
-    await assert.rejects(() => transcribeWhatsAppVoice(Buffer.alloc(25 * 1024 * 1024 + 1)), /25 MB/);
-  } finally {
-    if (previous === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previous;
-  }
+test('uses the custom base URL when a transcription model is configured for it', async (t) => {
+  useEnv(t, { LLM_API_KEY: undefined, LLM_BASE_URL: 'http://llm.test/v1/', LLM_MODEL: 'local-model', LLM_TRANSCRIBE_MODEL: 'whisper-1' });
+  const { calls, fetchImpl } = recordingFetch();
+  await transcribeWhatsAppVoice(Buffer.from('voice bytes'), 'audio/ogg', fetchImpl);
+  assert.deepEqual(calls, [{ url: 'http://llm.test/v1/audio/transcriptions', authorization: null, model: 'whisper-1' }]);
+});
+
+test('voice transcription is off for a custom endpoint without a transcription model', async (t) => {
+  useEnv(t, { LLM_BASE_URL: 'http://llm.test/v1', LLM_MODEL: 'local-model', LLM_TRANSCRIBE_MODEL: undefined });
+  await assert.rejects(() => transcribeWhatsAppVoice(Buffer.from('voice bytes')), { message: 'Voice transcription is not configured' });
+});
+
+test('rejects empty and oversized voice messages before calling the endpoint', async () => {
+  await assert.rejects(() => transcribeWhatsAppVoice(Buffer.alloc(0)), /empty/);
+  await assert.rejects(() => transcribeWhatsAppVoice(Buffer.alloc(25 * 1024 * 1024 + 1)), /25 MB/);
 });

@@ -7,8 +7,8 @@ import { createMediaRadarSubscription, listMediaRadarSubscriptions, recordMediaR
 
 test('media radar subscriptions persist lifecycle and deduplicated recommendation history', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'gary-radar-'));
-  const previous = process.env.GARY_MEDIA_RADAR_STORE_PATH;
-  process.env.GARY_MEDIA_RADAR_STORE_PATH = join(dir, 'radars.json');
+  const previous = process.env.GARY_DATA_DIR;
+  process.env.GARY_DATA_DIR = dir;
   try {
     const created = await createMediaRadarSubscription({
       scheduleId: 'agent_radar_test', name: 'Friday sci-fi', requester: 'Alice', resourceId: 'telegram:123', threadId: 'thread-1', channel: 'telegram', theme: 'new science-fiction movies', cron: '0 18 * * 5', timezone: 'America/New_York', preferredGenres: ['science fiction'], blockedGenres: [], constraints: ['not too grim'], shortlistSize: 5,
@@ -23,7 +23,7 @@ test('media radar subscriptions persist lifecycle and deduplicated recommendatio
     assert.equal(listed[0].surfaced[0].title, 'Example');
     assert.equal(otherUser.length, 0);
   } finally {
-    if (previous === undefined) delete process.env.GARY_MEDIA_RADAR_STORE_PATH; else process.env.GARY_MEDIA_RADAR_STORE_PATH = previous;
+    if (previous === undefined) delete process.env.GARY_DATA_DIR; else process.env.GARY_DATA_DIR = previous;
     await rm(dir, { recursive: true, force: true });
   }
 });

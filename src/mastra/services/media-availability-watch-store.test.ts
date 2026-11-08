@@ -7,8 +7,8 @@ import { cancelMediaAvailabilityWatches, createMediaAvailabilityWatch, deleteMed
 
 test('availability watch cancellation is isolated by resource and thread', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'gary-watch-'));
-  const previous = process.env.GARY_MEDIA_WATCH_STORE_PATH;
-  process.env.GARY_MEDIA_WATCH_STORE_PATH = join(dir, 'watches.json');
+  const previous = process.env.GARY_DATA_DIR;
+  process.env.GARY_DATA_DIR = dir;
   try {
     const common = { title: 'Heat', mediaType: 'movie' as const, year: 1995, requester: 'test', channel: 'telegram' as const };
     await createMediaAvailabilityWatch({ ...common, resourceId: 'telegram:one', threadId: 'thread-one', correlationId: 'request-correlation' });
@@ -23,16 +23,16 @@ test('availability watch cancellation is isolated by resource and thread', async
     assert.equal((await listMediaAvailabilityWatches()).length, 1);
     assert.equal((await listMediaAvailabilityWatches())[0].resourceId, 'telegram:one');
   } finally {
-    if (previous === undefined) delete process.env.GARY_MEDIA_WATCH_STORE_PATH;
-    else process.env.GARY_MEDIA_WATCH_STORE_PATH = previous;
+    if (previous === undefined) delete process.env.GARY_DATA_DIR;
+    else process.env.GARY_DATA_DIR = previous;
     await rm(dir, { recursive: true, force: true });
   }
 });
 
 test('WhatsApp receipts close delivered watches and reactivate failed watches', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'gary-watch-receipt-'));
-  const previous = process.env.GARY_MEDIA_WATCH_STORE_PATH;
-  process.env.GARY_MEDIA_WATCH_STORE_PATH = join(dir, 'watches.json');
+  const previous = process.env.GARY_DATA_DIR;
+  process.env.GARY_DATA_DIR = dir;
   try {
     const created = await createMediaAvailabilityWatch({ title: 'Labyrinth', mediaType: 'movie', year: 1986, requester: 'test', resourceId: 'whatsapp:one', threadId: 'thread-one', channel: 'whatsapp' });
     await updateMediaAvailabilityWatch(created.watch.id, { status: 'delivery-pending', dirty: false, lastWhatsAppMessageId: 'wamid.one' });
@@ -46,16 +46,16 @@ test('WhatsApp receipts close delivered watches and reactivate failed watches', 
     assert.equal(retriable?.status, 'active');
     assert.equal(retriable?.dirty, true);
   } finally {
-    if (previous === undefined) delete process.env.GARY_MEDIA_WATCH_STORE_PATH;
-    else process.env.GARY_MEDIA_WATCH_STORE_PATH = previous;
+    if (previous === undefined) delete process.env.GARY_DATA_DIR;
+    else process.env.GARY_DATA_DIR = previous;
     await rm(dir, { recursive: true, force: true });
   }
 });
 
 test('an explicit notification watch upgrades an internal lifecycle watch', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'gary-watch-channel-'));
-  const previous = process.env.GARY_MEDIA_WATCH_STORE_PATH;
-  process.env.GARY_MEDIA_WATCH_STORE_PATH = join(dir, 'watches.json');
+  const previous = process.env.GARY_DATA_DIR;
+  process.env.GARY_DATA_DIR = dir;
   try {
     const common = { title: 'Arrival', mediaType: 'movie' as const, year: 2016, requester: 'admin', resourceId: 'whatsapp:one', threadId: 'thread-one' };
     const internal = await createMediaAvailabilityWatch({ ...common, channel: 'none' });
@@ -66,7 +66,7 @@ test('an explicit notification watch upgrades an internal lifecycle watch', asyn
     assert.equal(explicit.watch.channel, 'whatsapp');
     assert.equal(explicit.watch.correlationId, 'wamid.explicit');
   } finally {
-    if (previous === undefined) delete process.env.GARY_MEDIA_WATCH_STORE_PATH; else process.env.GARY_MEDIA_WATCH_STORE_PATH = previous;
+    if (previous === undefined) delete process.env.GARY_DATA_DIR; else process.env.GARY_DATA_DIR = previous;
     await rm(dir, { recursive: true, force: true });
   }
 });

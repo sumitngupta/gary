@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { garyConfig } from '../config/gary-config';
 
 export type StorageHealth = {
   status: 'ok' | 'warning' | 'critical' | 'unavailable';
@@ -8,9 +9,12 @@ export type StorageHealth = {
   criticalAtPercent: number;
 };
 
-export async function readStorageHealth(path: string): Promise<StorageHealth> {
-  const warningAtPercent = Number(process.env.GARY_STORAGE_WARNING_PERCENT || 85);
-  const criticalAtPercent = Number(process.env.GARY_STORAGE_CRITICAL_PERCENT || 92);
+export async function readConfiguredStorageHealth() {
+  const { healthFile, warningPercent, criticalPercent } = garyConfig().storage;
+  return healthFile ? readStorageHealth(healthFile, warningPercent, criticalPercent) : undefined;
+}
+
+export async function readStorageHealth(path: string, warningAtPercent: number, criticalAtPercent: number): Promise<StorageHealth> {
   try {
     const payload = JSON.parse(await readFile(path, 'utf8')) as { pct?: unknown; avail?: unknown };
     const usedPercent = typeof payload.pct === 'number' && Number.isFinite(payload.pct) ? payload.pct : null;

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ensureMediaRequestLifecycleWatch, resolveMediaRequester, resolveMediaRequestQualityProfile, storageAllowsMediaAcquisition, tvCatalogSeasonScope } from './create-media-request-tool';
+import { createMediaRequest, ensureMediaRequestLifecycleWatch, resolveMediaRequester, resolveMediaRequestQualityProfile, storageAllowsMediaAcquisition, tvCatalogSeasonScope } from './create-media-request-tool';
 import { listMediaAvailabilityWatches } from '../services/media-availability-watch-store';
 import { getOperationTimeline, resetGaryOperationsStoreForTests } from '../services/gary-operations-store';
 import { mediaRequestCreateInputSchema } from '../schemas/media-request';
@@ -11,9 +11,7 @@ import { mediaRequestCreateInputSchema } from '../schemas/media-request';
 test('every created media request gets a correlated lifecycle watch without inventing a notification', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'gary-request-lifecycle-'));
   const previousData = process.env.GARY_DATA_DIR;
-  const previousWatch = process.env.GARY_MEDIA_WATCH_STORE_PATH;
   process.env.GARY_DATA_DIR = dir;
-  process.env.GARY_MEDIA_WATCH_STORE_PATH = join(dir, 'watches.json');
   resetGaryOperationsStoreForTests();
   try {
     const watch = await ensureMediaRequestLifecycleWatch(
@@ -27,7 +25,6 @@ test('every created media request gets a correlated lifecycle watch without inve
   } finally {
     resetGaryOperationsStoreForTests();
     if (previousData === undefined) delete process.env.GARY_DATA_DIR; else process.env.GARY_DATA_DIR = previousData;
-    if (previousWatch === undefined) delete process.env.GARY_MEDIA_WATCH_STORE_PATH; else process.env.GARY_MEDIA_WATCH_STORE_PATH = previousWatch;
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -38,8 +35,15 @@ test('WhatsApp media requests use the canonical saved requester name', () => {
   assert.equal(resolveMediaRequester('Unprofiled', 'whatsapp:456'), 'Unprofiled');
 });
 
-test('hard quality objective selects the reusable Arr profile without changing household defaults', () => {
+test('hard quality objective selects the configured Arr profile without changing household defaults', (t) => {
+  t.after(() => { delete process.env.GARY_HARD_QUALITY_RADARR_PROFILE_ID; delete process.env.GARY_HARD_QUALITY_SONARR_PROFILE_ID; });
   const base = { title: 'Movie Alpha', requester: 'Bob', year: 2025, tmdbId: 123, notifyWhenAvailable: false, notificationChannel: 'none' as const };
+  assert.throws(
+    () => resolveMediaRequestQualityProfile({ ...base, mediaType: 'movie', qualityObjective: '4k-dv-atmos-hard' }),
+    { message: 'The hard 4K quality profile is not configured on this server. Set GARY_HARD_QUALITY_RADARR_PROFILE_ID to enable it.' },
+  );
+  process.env.GARY_HARD_QUALITY_RADARR_PROFILE_ID = '8';
+  process.env.GARY_HARD_QUALITY_SONARR_PROFILE_ID = '9';
   assert.equal(resolveMediaRequestQualityProfile({ ...base, mediaType: 'movie', qualityObjective: '4k-dv-atmos-hard' }), 8);
   assert.equal(resolveMediaRequestQualityProfile({ ...base, mediaType: 'tv', seasons: 'all', qualityObjective: '4k-dv-atmos-hard' }), 9);
   assert.equal(resolveMediaRequestQualityProfile({ ...base, mediaType: 'movie', qualityObjective: 'household-default' }), undefined);
@@ -97,4 +101,14 @@ test('episode-only requests cannot silently become season backlog requests', asy
     assert.equal(result.requestId, undefined);
     assert.match(result.summary, /No request was created/);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('read-only mode answers a request with a refusal and never calls the request service', async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; delete process.env.GARY_READ_ONLY; });
+  process.env.GARY_READ_ONLY = 'true';
+  globalThis.fetch = (async () => { throw new Error('fetch must not run in read-only mode'); }) as typeof fetch;
+  const result = await createMediaRequest({ title: 'Heat', mediaType: 'movie', requester: 'Bob', year: 1995, tmdbId: 949, notifyWhenAvailable: false, notificationChannel: 'none' });
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.summary, 'Gary is running in read-only mode (GARY_READ_ONLY=true), so I did not submit that request.');
 });

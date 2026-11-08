@@ -11,9 +11,7 @@ import {
   type StoredCollectionPackFile,
 } from './collection-pack-repair-store';
 import { createPendingIntent } from './gary-operations-store';
-import { readConfiguredXmlTag } from './media-service-config';
-
-const DEFAULT_RADARR_URL = 'http://radarr:7878';
+import { assertMutationAllowed, garyConfig, requireService } from '../config/gary-config';
 
 type RadarrMovie = { id: number; title: string; year?: number; tmdbId?: number; qualityProfileId?: number; path?: string };
 type ManualImportCandidate = {
@@ -25,17 +23,12 @@ type QueueItem = {
   outputPath?: string; downloadId?: string; statusMessages?: Array<{ messages?: string[] }>;
 };
 
-async function apiKey() {
-  const key = process.env.GARY_RADARR_API_KEY
-    || await readConfiguredXmlTag('GARY_RADARR_CONFIG_PATH', 'ApiKey');
-  if (!key) throw new Error('Radarr is not configured: set GARY_RADARR_API_KEY.');
-  return key;
-}
-
 async function radarrFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${process.env.GARY_RADARR_URL || DEFAULT_RADARR_URL}${path}`, {
+  const { url, apiKey } = requireService('radarr');
+  if (init?.method && init.method !== 'GET') assertMutationAllowed(path === '/api/v3/movie' ? 'request' : 'change');
+  const response = await fetch(`${url}${path}`, {
     ...init,
-    headers: { 'X-Api-Key': await apiKey(), ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
+    headers: { 'X-Api-Key': apiKey, ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...init?.headers },
   });
   if (!response.ok) throw new Error(`Radarr returned HTTP ${response.status}`);
   return await response.json() as T;
@@ -86,7 +79,7 @@ async function startManualImport(files: Array<{ file: StoredCollectionPackFile; 
 }
 
 function supervisorActor() {
-  const digits = (process.env.GARY_ADMIN_WHATSAPP || '').replace(/\D/g, '');
+  const digits = garyConfig().owners.adminWhatsApp;
   return digits ? `whatsapp:${digits}` : 'admin-household';
 }
 

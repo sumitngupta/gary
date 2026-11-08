@@ -142,7 +142,7 @@ test('WhatsApp daily mutation quotas are deterministic per category and actor', 
   process.env.GARY_WHATSAPP_ENABLED = 'true';
   process.env.GARY_WHATSAPP_MUTATIONS_ENABLED = 'true';
   process.env.GARY_WHATSAPP_ALLOWED_USERS = '+15550001';
-  process.env.GARY_WHATSAPP_DAILY_REQUEST_LIMIT = '1';
+  process.env.GARY_WHATSAPP_DAILY_MUTATION_LIMIT = '1';
   assert.equal((await enforceGaryAccessPolicy({ toolName: 'createMediaRequest', input: { title: 'Heat' }, resourceId: 'whatsapp:+15550001', eventId: 'one' })).allowed, true);
   const limited = await enforceGaryAccessPolicy({ toolName: 'createMediaRequest', input: { title: 'Arrival' }, resourceId: 'whatsapp:+15550001', eventId: 'two' });
   assert.equal(limited.allowed, false);

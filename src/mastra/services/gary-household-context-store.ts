@@ -1,12 +1,13 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createClient, type Client } from '@libsql/client';
+import { garyConfig } from '../config/gary-config';
 
 export type GaryHouseholdContext = { viewerAges: number[]; sharedLikes: string[]; contentBoundaries: string[]; intensityPolicy: string; updatedAt?: string };
 let client: Client | undefined; let initPromise: Promise<Client> | undefined;
 async function db() {
   if (client) return client;
-  initPromise ??= (async () => { const path = `${process.env.GARY_DATA_DIR || './data'}/gary-household-context.db`; await mkdir(dirname(path), { recursive: true }); const next = createClient({ url: `file:${path}`, timeout: 5_000 }); await next.execute(`CREATE TABLE IF NOT EXISTS gary_household_context (id INTEGER PRIMARY KEY CHECK(id=1), viewer_ages_json TEXT NOT NULL, shared_likes_json TEXT NOT NULL, boundaries_json TEXT NOT NULL, intensity_policy TEXT NOT NULL, updated_at TEXT NOT NULL)`); client = next; return next; })();
+  initPromise ??= (async () => { const path = `${garyConfig().dataDir}/gary-household-context.db`; await mkdir(dirname(path), { recursive: true }); const next = createClient({ url: `file:${path}`, timeout: 5_000 }); await next.execute(`CREATE TABLE IF NOT EXISTS gary_household_context (id INTEGER PRIMARY KEY CHECK(id=1), viewer_ages_json TEXT NOT NULL, shared_likes_json TEXT NOT NULL, boundaries_json TEXT NOT NULL, intensity_policy TEXT NOT NULL, updated_at TEXT NOT NULL)`); client = next; return next; })();
   return initPromise;
 }
 const parse = <T>(value: unknown, fallback: T) => { try { return JSON.parse(String(value)) as T; } catch { return fallback; } };

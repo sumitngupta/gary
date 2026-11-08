@@ -3,10 +3,11 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createClient, type Client } from '@libsql/client';
 import type { MediaQualityUpgradeItem } from '../schemas/media-quality-upgrade';
+import { garyConfig } from '../config/gary-config';
 
 let client: Client | undefined;
 let initialized: Promise<void> | undefined;
-function path() { return `${process.env.GARY_DATA_DIR || './data'}/media-quality-upgrades.db`; }
+function path() { return `${garyConfig().dataDir}/media-quality-upgrades.db`; }
 async function db() {
   if (!client) {
     await mkdir(dirname(path()), { recursive: true });
@@ -37,6 +38,6 @@ export async function consumeMediaQualityUpgradePlan(id: string, actorId: string
 export async function recordMediaQualityUpgrade(input: { planId: string; actorId: string; status: string; started: MediaQualityUpgradeItem[]; failed: Array<MediaQualityUpgradeItem & { error: string }> }) {
   const occurredAt = new Date().toISOString();
   await (await db()).execute({ sql: 'INSERT INTO media_quality_upgrade_events (occurred_at, plan_id, actor_id, status, started_json, failed_json) VALUES (?, ?, ?, ?, ?, ?)', args: [occurredAt, input.planId, input.actorId, input.status, JSON.stringify(input.started), JSON.stringify(input.failed)] });
-  await appendFile(`${process.env.GARY_DATA_DIR || './data'}/media-quality-upgrades.jsonl`, `${JSON.stringify({ occurredAt, ...input })}\n`, 'utf8');
+  await appendFile(`${garyConfig().dataDir}/media-quality-upgrades.jsonl`, `${JSON.stringify({ occurredAt, ...input })}\n`, 'utf8');
 }
 export function resetMediaQualityUpgradeStoreForTests() { client?.close(); client = undefined; initialized = undefined; }

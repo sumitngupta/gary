@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createClient, type Client } from '@libsql/client';
+import { garyConfig } from '../config/gary-config';
 
 export type StoredCollectionPackFile = {
   path: string;
@@ -30,7 +31,7 @@ export type CollectionPackPlan = {
 
 let client: Client | undefined;
 let initialized: Promise<void> | undefined;
-function path() { return `${process.env.GARY_DATA_DIR || './data'}/collection-pack-repairs.db`; }
+function path() { return `${garyConfig().dataDir}/collection-pack-repairs.db`; }
 async function db() {
   if (!client) {
     await mkdir(dirname(path()), { recursive: true });

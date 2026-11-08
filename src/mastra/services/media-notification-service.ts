@@ -3,6 +3,7 @@ import type { MediaAvailabilityWatch } from '../schemas/media-availability-watch
 import { claimGaryNotificationDelivery, completeGaryNotificationDelivery, failGaryNotificationDelivery } from './gary-notification-delivery-store';
 import { isGaryWhatsAppActorAuthorized } from './gary-access-policy';
 import { serverName } from '../config/branding';
+import { garyConfig } from '../config/gary-config';
 
 type MediaNotificationDelivery = {
   sent: boolean;
@@ -18,10 +19,6 @@ function telegramChatIdFromResource(resourceId: string) {
 
 function whatsappUserIdFromResource(resourceId: string) {
   return resourceId.match(/^whatsapp:(\d+)$/)?.[1];
-}
-
-function supervisorWhatsAppUserId() {
-  return (process.env.GARY_ADMIN_WHATSAPP || '').replace(/\D/g, '');
 }
 
 type AvailableWatch = Pick<MediaAvailabilityWatch, 'title' | 'year' | 'seasonNumber'> & Partial<Pick<MediaAvailabilityWatch, 'lastSnapshot'>>;
@@ -50,9 +47,8 @@ export function mediaAvailableBatchMessage(watches: AvailableWatch[]) {
 }
 
 export function whatsappAvailabilityTemplatePayload(to: string, watches: MediaAvailabilityWatch[]) {
-  const name = watches.length > 1
-    ? process.env.GARY_WHATSAPP_MEDIA_BATCH_TEMPLATE || 'gary_tracked_titles_available'
-    : process.env.GARY_WHATSAPP_MEDIA_AVAILABLE_TEMPLATE || 'gary_media_available';
+  const { templates } = garyConfig().whatsapp;
+  const name = watches.length > 1 ? templates.mediaBatch : templates.mediaAvailable;
   return {
     messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'template',
     template: {
@@ -85,6 +81,8 @@ export async function sendAvailabilityMessage(
   text: string,
   options?: { idempotencyKey?: string; kind?: 'media.available' | 'media.issue'; watches?: MediaAvailabilityWatch[] },
 ): Promise<MediaNotificationDelivery> {
+  const config = garyConfig();
+  if (config.readOnly) return { sent: false, reason: 'Gary is running in read-only mode (GARY_READ_ONLY=true)' };
   const idempotencyKey = options?.idempotencyKey;
   if (idempotencyKey) {
     const claimed = await claimGaryNotificationDelivery({ idempotencyKey, resourceId: watch.resourceId, channel: watch.channel, kind: options?.kind || 'media.available', targetIds: options?.watches?.map((item) => item.id) || [watch.id] });
@@ -96,9 +94,7 @@ export async function sendAvailabilityMessage(
   };
   if (watch.channel === 'whatsapp') {
     const to = whatsappUserIdFromResource(watch.resourceId);
-    const accessToken = process.env.GARY_WHATSAPP_ACCESS_TOKEN;
-    const phoneNumberId = process.env.GARY_WHATSAPP_PHONE_NUMBER_ID;
-    const graphVersion = process.env.GARY_WHATSAPP_GRAPH_VERSION || 'v25.0';
+    const { accessToken, phoneNumberId, graphVersion } = config.whatsapp;
     if (!to || !await isGaryWhatsAppActorAuthorized(to)) {
       return fail('WhatsApp notification target is not allowlisted');
     }
@@ -130,7 +126,7 @@ export async function sendAvailabilityMessage(
     return fail(`Unsupported notification channel: ${watch.channel}`);
   }
 
-  const botToken = process.env.GARY_TELEGRAM_BOT_TOKEN;
+  const botToken = config.telegramBotToken;
   const chatId = telegramChatIdFromResource(watch.resourceId);
 
   if (!botToken || !chatId) {
@@ -172,7 +168,7 @@ export async function sendMediaAvailableNotification(input: MediaAvailabilityWat
 }
 
 export async function sendMediaIssueNotification(watch: MediaAvailabilityWatch, issue: string) {
-  const supervisor = supervisorWhatsAppUserId();
+  const supervisor = garyConfig().owners.adminWhatsApp;
   if (!supervisor) {
     return { sent: false, reason: 'Gary supervisor WhatsApp is not configured' };
   }
@@ -184,8 +180,7 @@ export async function sendMediaIssueNotification(watch: MediaAvailabilityWatch, 
     threadId: `whatsapp:${supervisor}`,
     channel: 'whatsapp',
   };
-  const hours = Number(process.env.GARY_STALLED_ALERT_COOLDOWN_HOURS || '6');
-  const cooldownMs = (Number.isFinite(hours) && hours > 0 ? hours : 6) * 3_600_000;
+  const cooldownMs = garyConfig().stalledAlertCooldownHours * 3_600_000;
   const bucket = Math.floor(Date.now() / cooldownMs);
   return await sendAvailabilityMessage(supervisorWatch, summary, {
     idempotencyKey: `media.issue:${watch.id}:${issue}:${bucket}`,

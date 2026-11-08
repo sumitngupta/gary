@@ -2,6 +2,7 @@ import { WhatsAppAdapter, type WhatsAppAdapterConfig } from '@chat-adapter/whats
 import { ConsoleLogger } from 'chat';
 import { deleteGaryMessageReference, getGaryMessageReference, rememberGaryMessageReference } from './gary-conversation-state-store';
 import { attachPendingIntentProposalMessage, invalidatePendingIntentForMessage, recordWhatsAppEvent, resolvePendingIntent } from './gary-operations-store';
+import { garyConfig } from '../config/gary-config';
 
 const GROUP_MARKER = 'group_';
 
@@ -142,7 +143,7 @@ export class GaryWhatsAppAdapter extends WhatsAppAdapter {
       void this.handleQuotedInboundMessage(inbound, contact, phoneNumberId, quotedMessageId, options);
       return;
     }
-    if (process.env.GARY_WHATSAPP_GROUPS_ENABLED !== 'true') {
+    if (!garyConfig().whatsapp.groupsEnabled) {
       this.logger.info('WhatsApp group message ignored while group support is disabled', {
         groupId,
         messageId: inbound.id,

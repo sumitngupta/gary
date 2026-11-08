@@ -11,7 +11,6 @@ test('request history is owner-bound and excludes provider identifiers and raw e
   const dir = await mkdtemp(join(tmpdir(), 'gary-history-'));
   const env = { ...process.env };
   process.env.GARY_DATA_DIR = dir;
-  process.env.GARY_MEDIA_WATCH_STORE_PATH = join(dir, 'watches.json');
   resetGaryNotificationDeliveryStoreForTests();
   try {
     const own = await createMediaAvailabilityWatch({ title: 'My Movie', mediaType: 'movie', requester: 'alice', resourceId: 'alice', threadId: 'alice', channel: 'whatsapp' });

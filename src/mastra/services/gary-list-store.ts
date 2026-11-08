@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createClient, type Client, type InStatement, type Row, type Transaction } from '@libsql/client';
+import { garyConfig } from '../config/gary-config';
 
 export const GARY_LIST_LIMITS = {
   listsPerUser: 20,
@@ -131,7 +132,7 @@ let initPromise: Promise<Client> | undefined;
 async function db() {
   if (client) return client;
   initPromise ??= (async () => {
-    const path = `${process.env.GARY_DATA_DIR || './data'}/gary-lists.db`;
+    const path = `${garyConfig().dataDir}/gary-lists.db`;
     await mkdir(dirname(path), { recursive: true });
     const next = createClient({ url: `file:${path}`, timeout: 5_000 });
     await next.executeMultiple(SCHEMA);

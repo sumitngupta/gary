@@ -48,8 +48,8 @@ function fakePlexServer(t: TestContext, existing: Record<string, FakeCollection>
   };
   let nextKey = 900;
   const originalFetch = globalThis.fetch;
-  const priorToken = process.env.GARY_PLEX_TOKEN;
-  process.env.GARY_PLEX_TOKEN = 'test-token';
+  const priorToken = process.env.PLEX_TOKEN;
+  process.env.PLEX_TOKEN = 'test-token'; process.env.PLEX_URL = 'http://plex.test';
   globalThis.fetch = async (input, init) => {
     if (server.down) throw new Error('connect ECONNREFUSED');
     const url = new URL(String(input));
@@ -90,7 +90,7 @@ function fakePlexServer(t: TestContext, existing: Record<string, FakeCollection>
   };
   t.after(() => {
     globalThis.fetch = originalFetch;
-    if (priorToken === undefined) delete process.env.GARY_PLEX_TOKEN; else process.env.GARY_PLEX_TOKEN = priorToken;
+    delete process.env.PLEX_URL; if (priorToken === undefined) delete process.env.PLEX_TOKEN; else process.env.PLEX_TOKEN = priorToken;
   });
   return server;
 }

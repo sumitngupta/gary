@@ -1,4 +1,4 @@
-import { readDockerEnvValue } from './media-service-config';
+import { assertMutationAllowed, requireService } from '../config/gary-config';
 
 type PlexLibrarySection = {
   key?: string;
@@ -19,8 +19,6 @@ type PlexMetadata = {
   librarySectionID?: number;
 };
 
-const DEFAULT_PLEX_URLS = ['http://127.0.0.1:32400'];
-
 export function normalizeTitle(title: string) {
   return title
     .toLowerCase()
@@ -30,42 +28,19 @@ export function normalizeTitle(title: string) {
     .replace(/\s+/g, ' ');
 }
 
-async function plexToken() {
-  const token = process.env.GARY_PLEX_TOKEN || await readDockerEnvValue('PLEX_TOKEN');
-  if (!token) {
-    throw new Error('Plex token was not found.');
-  }
-
-  return token;
-}
-
 async function plexRequest(path: string, init?: RequestInit): Promise<Response> {
-  const token = await plexToken();
+  const { url, apiKey: token } = requireService('plex');
+  if (init?.method && init.method !== 'GET') assertMutationAllowed('change');
   const separator = path.includes('?') ? '&' : '?';
-  let lastError: unknown;
-
-  for (const baseUrl of [process.env.GARY_PLEX_URL, ...DEFAULT_PLEX_URLS].filter(Boolean)) {
-    try {
-      const response = await fetch(`${baseUrl}${path}${separator}X-Plex-Token=${encodeURIComponent(token)}`, {
-        ...init,
-        headers: {
-          Accept: 'application/json',
-          ...init?.headers,
-        },
-      });
-
-      if (!response.ok) {
-        lastError = new Error(`Plex returned HTTP ${response.status}`);
-        continue;
-      }
-
-      return response;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  const response = await fetch(`${url}${path}${separator}X-Plex-Token=${encodeURIComponent(token)}`, {
+    ...init,
+    headers: {
+      Accept: 'application/json',
+      ...init?.headers,
+    },
+  });
+  if (!response.ok) throw new Error(`Plex returned HTTP ${response.status}`);
+  return response;
 }
 
 async function plexFetch<T>(path: string): Promise<T> {

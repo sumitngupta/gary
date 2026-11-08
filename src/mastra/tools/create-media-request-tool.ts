@@ -21,13 +21,9 @@ import { randomUUID } from 'node:crypto';
 import { appendOperationEvent } from '../services/gary-operations-store';
 import { createMediaAvailabilityWatch } from '../services/media-availability-watch-store';
 import { getGaryUserProfile } from '../services/gary-user-profile-store';
-import { readStorageHealth, type StorageHealth } from '../services/storage-health';
+import { readConfiguredStorageHealth, type StorageHealth } from '../services/storage-health';
 import { serverName, serverNameTitle } from '../config/branding';
-
-const HARD_QUALITY_PROFILE_IDS = {
-  movie: Number.parseInt(process.env.GARY_HARD_QUALITY_RADARR_PROFILE_ID || '8', 10),
-  tv: Number.parseInt(process.env.GARY_HARD_QUALITY_SONARR_PROFILE_ID || '9', 10),
-} as const;
+import { assertMutationAllowed, hardQualityProfileId } from '../config/gary-config';
 
 export const LARGE_TV_CATALOG_SEASON_THRESHOLD = 6;
 
@@ -59,7 +55,7 @@ export function tvCatalogSeasonScope(details: {
 
 export function resolveMediaRequestQualityProfile(request: MediaRequestCreateInput) {
   if (request.qualityObjective !== '4k-dv-atmos-hard') return undefined;
-  return HARD_QUALITY_PROFILE_IDS[request.mediaType];
+  return hardQualityProfileId(request.mediaType);
 }
 
 export function resolveMediaRequester(inputRequester: string, resourceId?: string, preferredName?: string) {
@@ -162,10 +158,14 @@ export async function createMediaRequest(input: unknown): Promise<MediaRequestCr
   }
 
   try {
-    const storage = await readStorageHealth(
-      process.env.GARY_STORAGE_HEALTH_FILE || '/run/status/disk-status.json',
-    );
-    if (!storageAllowsMediaAcquisition(storage)) {
+    assertMutationAllowed('request');
+  } catch (error) {
+    return { ...parsedRequest, status: 'blocked', summary: error instanceof Error ? error.message : String(error) };
+  }
+
+  try {
+    const storage = await readConfiguredStorageHealth();
+    if (storage && !storageAllowsMediaAcquisition(storage)) {
       return {
         status: 'service-unavailable',
         requester: parsedRequest.requester,

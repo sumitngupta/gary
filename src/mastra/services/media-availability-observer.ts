@@ -15,6 +15,7 @@ import { listSeerrMedia, listSeerrRequests } from './seerr-readonly-client';
 import { recoverApprovedTargetFromCollectionPack } from './collection-pack-repair';
 import { partialTvDetail, tvCompleteness } from './sonarr-season-summary';
 import { serverName } from '../config/branding';
+import { garyConfig } from '../config/gary-config';
 
 type SonarrSeriesStatus = Awaited<ReturnType<typeof getSonarrSeriesStatus>>;
 
@@ -199,8 +200,7 @@ function issueFingerprint(snapshot: MediaAvailabilityWatchSnapshot) {
 
 function issueCooldownElapsed(watch: MediaAvailabilityWatch, now = Date.now()) {
   if (!watch.lastIssueNotificationAt) return true;
-  const hours = Number(process.env.GARY_STALLED_ALERT_COOLDOWN_HOURS || '6');
-  const cooldown = (Number.isFinite(hours) && hours > 0 ? hours : 6) * 3_600_000;
+  const cooldown = garyConfig().stalledAlertCooldownHours * 3_600_000;
   return now - Date.parse(watch.lastIssueNotificationAt) >= cooldown;
 }
 

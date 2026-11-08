@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createClient, type Client } from '@libsql/client';
+import { garyConfig } from '../config/gary-config';
 
 export type GaryPerformanceRun = {
   runId: string;
@@ -47,7 +48,7 @@ let initPromise: Promise<Client> | undefined;
 async function db() {
   if (client) return client;
   initPromise ??= (async () => {
-    const path = `${process.env.GARY_DATA_DIR || './data'}/gary-performance.db`;
+    const path = `${garyConfig().dataDir}/gary-performance.db`;
     await mkdir(dirname(path), { recursive: true });
     const next = createClient({ url: `file:${path}`, timeout: 5000 });
     await next.executeMultiple(SCHEMA);

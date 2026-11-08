@@ -15,16 +15,16 @@ import {
   sonarrMediaEventRoute,
 } from './routes/media-availability-watch';
 import { whatsappGaryDeliveryRoute, whatsappGaryVerificationRoute } from './routes/whatsapp-verification';
-import { modelEvaluationModeEnabled } from './services/model-evaluation-safety';
 import { garyLinkedVisualExtractionWorkflow } from './workflows/gary-linked-visual-extraction-workflow';
 import { garyListShelfSyncWorkflow } from './workflows/gary-list-shelf-sync-workflow';
 import { garyMediaQualityWorkflow } from './workflows/gary-media-quality-workflow';
 import { garyRecommendationVerificationWorkflow } from './workflows/gary-recommendation-verification-workflow';
 import { garyTitleResolutionWorkflow } from './workflows/gary-title-resolution-workflow';
 import { mediaAvailabilityWatchWorkflow } from './workflows/media-availability-watch-workflow';
+import { garyConfig } from './config/gary-config';
 
-const dataDir = process.env.GARY_DATA_DIR || './data';
-mkdirSync(dataDir, { recursive: true });
+const config = garyConfig();
+mkdirSync(config.dataDir, { recursive: true });
 
 function isMediaRadarSchedule(agentId: string, metadata: unknown) {
   return agentId === 'gary' && (metadata as { kind?: string } | undefined)?.kind === 'gary-media-radar';
@@ -46,7 +46,7 @@ export const mastra = new Mastra({
     garyRecommendationVerification: garyRecommendationVerificationWorkflow,
     garyListShelfSync: garyListShelfSyncWorkflow,
   },
-  scheduler: { enabled: !modelEvaluationModeEnabled() },
+  scheduler: { enabled: !config.readOnly },
   schedules: {
     prepare: async ({ agentId, schedule }) => {
       if (!isMediaRadarSchedule(agentId, schedule.metadata)) return undefined;
@@ -86,13 +86,14 @@ export const mastra = new Mastra({
   },
   storage: new LibSQLStore({
     id: 'gary-storage',
-    url: `file:${dataDir}/mastra.db`,
+    url: `file:${config.dataDir}/mastra.db`,
   }),
   logger: new PinoLogger({
     name: 'Gary',
     level: 'info',
   }),
   server: {
+    port: config.port,
     apiRoutes: [
       healthzRoute,
       whatsappGaryVerificationRoute,

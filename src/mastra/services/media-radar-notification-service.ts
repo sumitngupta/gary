@@ -1,5 +1,6 @@
 import { getMediaRadarSubscription, updateMediaRadarSubscription } from './media-radar-subscription-store';
 import { sendWhatsAppMediaRadar } from './whatsapp-media-radar-delivery';
+import { assertMutationAllowed, garyConfig } from '../config/gary-config';
 
 export { sendWhatsAppMediaRadar } from './whatsapp-media-radar-delivery';
 
@@ -32,9 +33,10 @@ export async function deliverMediaRadar(scheduleId: string, text: string) {
   }
 
   if (subscription.status !== 'active' || subscription.channel === 'none') return { sent: false, reason: 'inactive or no delivery channel' };
+  assertMutationAllowed('message');
 
   if (subscription.channel === 'telegram') {
-    const token = process.env.GARY_TELEGRAM_BOT_TOKEN;
+    const token = garyConfig().telegramBotToken;
     const chatId = subscription.resourceId.match(/^telegram:(.+)$/)?.[1];
     if (!token || !chatId) throw new Error('Telegram delivery is not configured for this radar.');
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -45,7 +47,7 @@ export async function deliverMediaRadar(scheduleId: string, text: string) {
   }
 
   if (subscription.channel === 'slack') {
-    const token = process.env.SLACK_BOT_TOKEN;
+    const token = garyConfig().slackBotToken;
     const [, channel, threadTs] = subscription.threadId.split(':');
     if (!token || !channel) throw new Error('Slack delivery is not configured for this radar.');
     const response = await fetch('https://slack.com/api/chat.postMessage', {

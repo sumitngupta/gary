@@ -1,6 +1,7 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createClient, type Client } from '@libsql/client';
+import { garyConfig, requireService } from '../config/gary-config';
 
 type TautulliUser = { user_id: number; username: string; friendly_name?: string; keep_history?: number; is_active?: number };
 type History = { user_id: number; media_type: string; title: string; grandparent_title?: string; rating_key: number; grandparent_rating_key?: number; guid?: string; year?: number; started: number; percent_complete?: number; watched_status?: number; play_duration?: number };
@@ -13,15 +14,10 @@ CREATE INDEX IF NOT EXISTS idx_gary_viewing_resource ON gary_viewing_titles(reso
 `;
 let client: Client | undefined;
 let initPromise: Promise<Client> | undefined;
-async function db() { if (client) return client; initPromise ??= (async () => { const path = `${process.env.GARY_DATA_DIR || './data'}/gary-viewing.db`; await mkdir(dirname(path), { recursive: true }); const next = createClient({ url: `file:${path}`, timeout: 5000 }); await next.executeMultiple(SCHEMA); client = next; return next; })(); return initPromise; }
+async function db() { if (client) return client; initPromise ??= (async () => { const path = `${garyConfig().dataDir}/gary-viewing.db`; await mkdir(dirname(path), { recursive: true }); const next = createClient({ url: `file:${path}`, timeout: 5000 }); await next.executeMultiple(SCHEMA); client = next; return next; })(); return initPromise; }
 
 async function api<T>(cmd: string, params: Record<string, string | number> = {}) {
-  const base = process.env.GARY_TAUTULLI_URL || 'http://tautulli:8181';
-  const configKey = await readFile(process.env.GARY_TAUTULLI_CONFIG || '/run/secrets/tautulli-config.ini', 'utf8')
-    .then((text) => text.match(/^\s*api_key\s*=\s*(.+)\s*$/m)?.[1]?.trim())
-    .catch(() => undefined);
-  const key = process.env.GARY_TAUTULLI_API_KEY || configKey;
-  if (!key) throw new Error('Tautulli personalization is not configured');
+  const { url: base, apiKey: key } = requireService('tautulli');
   const url = new URL('/api/v2', base); url.searchParams.set('apikey', key); url.searchParams.set('cmd', cmd);
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, String(value));
   const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
@@ -68,7 +64,7 @@ export async function connectTautulliUser(resourceId: string, username: string) 
         tautulli_username=excluded.tautulli_username,consented_at=excluded.consented_at,last_synced_at=excluded.last_synced_at,
         taste_json=excluded.taste_json`, args: [resourceId, match.id, match.username, now, old.last_synced_at ?? null, String(old.taste_json || '{}')] },
     ], 'write');
-    const requestTaste = createClient({ url: `file:${process.env.GARY_DATA_DIR || './data'}/gary-request-tastes.db`, timeout: 5000 });
+    const requestTaste = createClient({ url: `file:${garyConfig().dataDir}/gary-request-tastes.db`, timeout: 5000 });
     await requestTaste.execute({ sql: 'UPDATE request_taste_profiles SET resource_id=?,identity_confidence=? WHERE resource_id=? OR lower(seerr_username)=lower(?)', args: [resourceId, 'verified-plex-gary-link', String(old.resource_id), match.username] }).catch(() => undefined);
     requestTaste.close();
   } else {

@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createClient, type Client } from '@libsql/client';
+import { garyConfig } from '../config/gary-config';
 
 export const GARY_DELETE_CONFIRMATION_PHRASE = 'DELETE MY GARY DATA';
 
@@ -8,7 +9,7 @@ let client: Client | undefined;
 let initPromise: Promise<void> | undefined;
 
 function databasePath() {
-  return `${process.env.GARY_DATA_DIR || './data'}/gary-confirmations.db`;
+  return `${garyConfig().dataDir}/gary-confirmations.db`;
 }
 
 async function database() {
@@ -36,8 +37,7 @@ async function database() {
 }
 
 function ttlMs() {
-  const configured = Number.parseInt(process.env.GARY_CONFIRMATION_TTL_MINUTES || '15', 10);
-  return (Number.isFinite(configured) && configured > 0 ? configured : 15) * 60_000;
+  return garyConfig().requests.confirmationTtlMinutes * 60_000;
 }
 
 export async function beginGaryDeletionConfirmation(resourceId: string, now = new Date()) {

@@ -52,8 +52,8 @@ test('privacy export shows which lists are published and delete takes the shelf 
 
   const requests: string[] = [];
   const originalFetch = globalThis.fetch;
-  const priorToken = process.env.GARY_PLEX_TOKEN;
-  process.env.GARY_PLEX_TOKEN = 'test-token';
+  const priorToken = process.env.PLEX_TOKEN;
+  process.env.PLEX_TOKEN = 'test-token'; process.env.PLEX_URL = 'http://plex.test';
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     if (init?.method === 'DELETE') requests.push(`DELETE ${url.pathname}`);
@@ -64,7 +64,7 @@ test('privacy export shows which lists are published and delete takes the shelf 
   };
   t.after(() => {
     globalThis.fetch = originalFetch;
-    if (priorToken === undefined) delete process.env.GARY_PLEX_TOKEN; else process.env.GARY_PLEX_TOKEN = priorToken;
+    delete process.env.PLEX_URL; if (priorToken === undefined) delete process.env.PLEX_TOKEN; else process.env.PLEX_TOKEN = priorToken;
   });
 
   const exported = await execute({ action: 'export', confirmDelete: false }, as(carol)) as any;

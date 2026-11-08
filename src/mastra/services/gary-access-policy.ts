@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createClient, type Client } from '@libsql/client';
+import { garyConfig } from '../config/gary-config';
 
 export type GaryPolicyContext = {
   toolName: string;
@@ -91,7 +92,7 @@ let client: Client | undefined;
 let initPromise: Promise<Client> | undefined;
 
 function dataDir() {
-  return process.env.GARY_DATA_DIR || './data';
+  return garyConfig().dataDir;
 }
 
 async function db() {
@@ -109,15 +110,6 @@ async function db() {
     return next;
   })();
   return initPromise;
-}
-
-function flag(name: string, fallback: boolean) {
-  const value = process.env[name];
-  return value === undefined ? fallback : value === 'true';
-}
-
-function csv(name: string) {
-  return new Set((process.env[name] || '').split(',').map((value) => value.trim()).filter(Boolean));
 }
 
 function normalizeWhatsAppActor(value: string) {
@@ -153,7 +145,7 @@ export async function createGaryWhatsAppEnrollment(input: { name: string; email:
 
 export async function isGaryWhatsAppActorAuthorized(actorId: string) {
   const normalized = normalizeWhatsAppActor(actorId);
-  if ([...csv('GARY_WHATSAPP_ALLOWED_USERS')].map(normalizeWhatsAppActor).includes(normalized)) return true;
+  if (garyConfig().whatsapp.allowedUsers.map(normalizeWhatsAppActor).includes(normalized)) return true;
   const result = await (await db()).execute({
     sql: 'SELECT 1 FROM gary_authorized_actors WHERE actor_id = ? LIMIT 1',
     args: [normalized],
@@ -231,18 +223,11 @@ function operationKey(toolName: string, input: unknown) {
   return createHash('sha256').update(`${toolName}:${JSON.stringify(input)}`).digest('hex').slice(0, 24);
 }
 
+// List edits are cheap personal bookkeeping, so they get their own roomier
+// quota than mutations that touch the media server or other people.
 function quotaFor(categoryName: GaryPolicyDecision['category']) {
-  const specific = process.env[`GARY_WHATSAPP_DAILY_${categoryName.toUpperCase()}_LIMIT`];
-  // List edits are cheap personal bookkeeping, so they get a roomier default
-  // than mutations that touch the media server or other people.
-  const fallback = categoryName === 'list' ? '100' : process.env.GARY_WHATSAPP_DAILY_MUTATION_LIMIT || '10';
-  const parsed = Number(specific || fallback);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 10;
-}
-
-function hourlyWebQuota() {
-  const parsed = Number(process.env.GARY_WHATSAPP_HOURLY_WEB_LIMIT || '100');
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 100;
+  const { dailyListLimit, dailyMutationLimit } = garyConfig().whatsapp;
+  return categoryName === 'list' ? dailyListLimit : dailyMutationLimit;
 }
 
 export async function enforceGaryAccessPolicy(context: GaryPolicyContext): Promise<GaryPolicyDecision> {
@@ -262,20 +247,21 @@ export async function enforceGaryAccessPolicy(context: GaryPolicyContext): Promi
     reasonCode = 'radar_mutation_denied';
   }
 
+  const whatsapp = garyConfig().whatsapp;
   if (allowed && channel === 'whatsapp') {
     const normalizedActorId = actorId ? normalizeWhatsAppActor(actorId) : undefined;
     const actorAuthorized = normalizedActorId
       ? await isGaryWhatsAppActorAuthorized(normalizedActorId)
       : false;
-    if (!flag('GARY_WHATSAPP_ENABLED', false)) {
+    if (!whatsapp.enabled) {
       allowed = false; reason = 'WhatsApp access is disabled'; reasonCode = 'whatsapp_disabled';
     } else if (!normalizedActorId || !actorAuthorized) {
       allowed = false; reason = 'WhatsApp actor is not allowlisted'; reasonCode = 'actor_not_allowlisted';
-    } else if (mutation && !flag('GARY_WHATSAPP_MUTATIONS_ENABLED', false)) {
+    } else if (mutation && !whatsapp.mutationsEnabled) {
       allowed = false; reason = 'WhatsApp mutations are disabled'; reasonCode = 'mutations_disabled';
-    } else if (categoryName === 'web' && !flag('GARY_WHATSAPP_WEB_ENABLED', true)) {
+    } else if (categoryName === 'web' && !whatsapp.webEnabled) {
       allowed = false; reason = 'WhatsApp web research is disabled'; reasonCode = 'web_disabled';
-    } else if (categoryName === 'schedule' && !flag('GARY_WHATSAPP_SCHEDULING_ENABLED', false)) {
+    } else if (categoryName === 'schedule' && !whatsapp.schedulingEnabled) {
       allowed = false; reason = 'WhatsApp scheduling is disabled'; reasonCode = 'scheduling_disabled';
     } else if (mutation && !context.eventId && !(scheduledRadar && context.toolName === 'recordMediaRadarDelivery')) {
       allowed = false; reason = 'A trusted WhatsApp event id is required for mutations'; reasonCode = 'trusted_event_required';
@@ -302,7 +288,7 @@ export async function enforceGaryAccessPolicy(context: GaryPolicyContext): Promi
       sql: 'SELECT COUNT(*) AS count FROM gary_policy_events WHERE channel = ? AND actor_id = ? AND category = ? AND allowed = 1 AND occurred_at >= ?',
       args: [channel, actorId, 'web', since],
     });
-    if (Number(count.rows[0]?.count || 0) >= hourlyWebQuota()) {
+    if (Number(count.rows[0]?.count || 0) >= whatsapp.hourlyWebLimit) {
       allowed = false; reason = 'Hourly web research safety limit reached'; reasonCode = 'hourly_web_quota_reached';
     }
   }
@@ -345,11 +331,6 @@ export async function deleteGaryPolicyEvents(actorId: string) {
   };
 }
 
-function hourlyInboundQuota() {
-  const parsed = Number(process.env.GARY_WHATSAPP_HOURLY_INBOUND_LIMIT || '120');
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 120;
-}
-
 export async function claimGaryInboundEvent(channel: string, eventId: string, actorId: string) {
   const database = await db();
   const replay = await database.execute({
@@ -370,7 +351,7 @@ export async function claimGaryInboundEvent(channel: string, eventId: string, ac
       sql: 'SELECT COUNT(*) AS count FROM gary_inbound_events WHERE channel = ? AND actor_id = ? AND received_at >= ?',
       args: [channel, actorId, since],
     });
-    if (Number(recent.rows[0]?.count || 0) >= hourlyInboundQuota()) {
+    if (Number(recent.rows[0]?.count || 0) >= garyConfig().whatsapp.hourlyInboundLimit) {
       return { accepted: false, firstForActor, reasonCode: 'hourly_inbound_quota_reached' as const };
     }
   }
@@ -399,18 +380,14 @@ export async function getGaryPolicyHealth() {
       args: [since],
     }),
   ]);
+  const { whatsapp } = garyConfig();
   return {
-    globalConcurrency: positiveIntegerEnv('GARY_WHATSAPP_GLOBAL_CONCURRENCY', 3),
-    hourlyInboundLimit: positiveIntegerEnv('GARY_WHATSAPP_HOURLY_INBOUND_LIMIT', 120),
-    hourlyWebLimit: positiveIntegerEnv('GARY_WHATSAPP_HOURLY_WEB_LIMIT', 100),
+    globalConcurrency: whatsapp.globalConcurrency,
+    hourlyInboundLimit: whatsapp.hourlyInboundLimit,
+    hourlyWebLimit: whatsapp.hourlyWebLimit,
     inboundEventsLastHour: Number(inbound.rows[0]?.count || 0),
     denialsLastHour: Object.fromEntries(denials.rows.map((row) => [String(row.reason_code), Number(row.count || 0)])),
   };
-}
-
-function positiveIntegerEnv(name: string, fallback: number) {
-  const value = Number(process.env[name] || fallback);
-  return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
 export function resetGaryPolicyClientForTests() {

@@ -14,11 +14,11 @@ const identity = { resourceId: 'whatsapp:15555550101', threadId: 'notification-r
 
 async function fixture(t: TestContext, available = false) {
   const dir = await mkdtemp(join(tmpdir(), 'gary-notification-opt-in-'));
-  const names = ['GARY_DATA_DIR', 'GARY_MEDIA_WATCH_STORE_PATH', 'GARY_PLEX_TOKEN'] as const;
+  const names = ['GARY_DATA_DIR', 'PLEX_URL', 'PLEX_TOKEN'] as const;
   const previous = names.map((name) => process.env[name]);
   process.env.GARY_DATA_DIR = dir;
-  process.env.GARY_MEDIA_WATCH_STORE_PATH = join(dir, 'watches.json');
-  process.env.GARY_PLEX_TOKEN = 'test-only';
+  process.env.PLEX_URL = 'http://plex.test';
+  process.env.PLEX_TOKEN = 'test-only';
   resetGaryOperationsStoreForTests();
   t.after(async () => {
     resetGaryOperationsStoreForTests();

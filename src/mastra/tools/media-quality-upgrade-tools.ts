@@ -8,6 +8,7 @@ import { consumeMediaQualityUpgradePlan, createMediaQualityUpgradePlan, recordMe
 
 import { isGaryWhatsAppActorAuthorized } from '../services/gary-access-policy';
 import { serverName } from '../config/branding';
+import { hardQualityProfileId, mediaOwnerActors } from '../config/gary-config';
 
 function actor(context: ToolExecutionContext | undefined) {
   const channel = context?.requestContext?.get('channel') as { platform?: string; userId?: string } | undefined;
@@ -17,21 +18,13 @@ function actor(context: ToolExecutionContext | undefined) {
   }
   return context?.agent?.resourceId || '';
 }
-function owners() {
-  const values = (process.env.GARY_MEDIA_OWNER_ACTORS || '').split(',').map((v) => v.trim()).filter(Boolean);
-  if (process.env.GARY_ADMIN_WHATSAPP) values.push(`whatsapp:${process.env.GARY_ADMIN_WHATSAPP}`);
-  values.push('admin-household'); return new Set(values);
-}
 export async function canRequestMediaQualityUpgrade(actorId: string) {
-  if (owners().has(actorId)) return true;
+  if (mediaOwnerActors().has(actorId)) return true;
   if (actorId.startsWith('whatsapp:') && /^\+?\d+$/.test(actorId.slice(9))) {
     return isGaryWhatsAppActorAuthorized(actorId.slice(9));
   }
   return false;
 }
-const hardProfile = (type: 'movie' | 'tv') => Number.parseInt(type === 'movie'
-  ? process.env.GARY_HARD_QUALITY_RADARR_PROFILE_ID || '8'
-  : process.env.GARY_HARD_QUALITY_SONARR_PROFILE_ID || '9', 10);
 
 export const previewMediaQualityUpgradeTool = createTool({
   id: 'preview-media-quality-upgrade', description: 'Authorized-user read-only preview that freezes exact existing noncompliant titles for the hard 4K Dolby Vision plus Atmos profile. It does not change profiles, search, download, or replace files.',
@@ -53,7 +46,7 @@ export const previewMediaQualityUpgradeTool = createTool({
           ? (status as Awaited<ReturnType<typeof getRadarrMovieStatus>> & {}).movie
           : (status as Awaited<ReturnType<typeof getSonarrSeriesStatus>> & {}).series;
         if (!arr.qualityProfileId) throw new Error(`${audit.title} has no current quality profile id.`);
-        items.push({ ...candidate, title: audit.title, year: audit.year, arrId: arr.id, currentProfileId: arr.qualityProfileId, targetProfileId: hardProfile(candidate.mediaType), currentBytes: audit.files.reduce((n, file) => n + (file.size || 0), 0), fileCount: audit.files.length, failures });
+        items.push({ ...candidate, title: audit.title, year: audit.year, arrId: arr.id, currentProfileId: arr.qualityProfileId, targetProfileId: hardQualityProfileId(candidate.mediaType), currentBytes: audit.files.reduce((n, file) => n + (file.size || 0), 0), fileCount: audit.files.length, failures });
       }
       if (!items.length) return { status: 'nothing-to-upgrade' as const, items, totalCurrentBytes: 0, summary: 'No resolved existing files require this upgrade.', mutation: false as const };
       if (items.length !== input.candidates.length) return { status: 'not-found' as const, items, totalCurrentBytes: items.reduce((n, i) => n + i.currentBytes, 0), summary: `Only ${items.length} of ${input.candidates.length} titles resolved as noncompliant; refusing a partial plan.`, mutation: false as const };

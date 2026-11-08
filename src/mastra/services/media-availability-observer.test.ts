@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMediaAvailabilityWatchTool } from '../tools/create-media-availability-watch-tool';
@@ -27,17 +27,14 @@ type Library = {
 async function fixture(t: TestContext, library: Library) {
   const dir = await mkdtemp(join(tmpdir(), 'gary-tv-completeness-'));
   const previousEnv = { ...process.env };
-  const seerrSettings = join(dir, 'seerr-settings.json');
-  await writeFile(seerrSettings, JSON.stringify({ main: { apiKey: 'test-only' } }));
   Object.assign(process.env, {
     GARY_DATA_DIR: dir,
-    GARY_MEDIA_WATCH_STORE_PATH: join(dir, 'watches.json'),
-    GARY_PLEX_TOKEN: 'test-only',
-    GARY_PLEX_URL: 'http://plex.test',
-    GARY_SONARR_URL: 'http://sonarr.test',
-    GARY_SONARR_API_KEY: 'test-only',
-    GARY_SEERR_URL: 'http://seerr.test',
-    GARY_SEERR_SETTINGS_PATH: seerrSettings,
+    PLEX_TOKEN: 'test-only',
+    PLEX_URL: 'http://plex.test',
+    SONARR_URL: 'http://sonarr.test',
+    SONARR_API_KEY: 'test-only',
+    SEERR_URL: 'http://seerr.test',
+    SEERR_API_KEY: 'test-only',
     GARY_TELEGRAM_BOT_TOKEN: 'test-only',
   });
   resetGaryOperationsStoreForTests();

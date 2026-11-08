@@ -1,41 +1,22 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { blockSeerrMedia, createSeerrRequest, isSeerrMediaBlocked, searchSeerr } from './seerr-readonly-client';
 
 const originalFetch = globalThis.fetch;
-const originalSettingsPath = process.env.GARY_SEERR_SETTINGS_PATH;
-const originalSeerrUrl = process.env.GARY_SEERR_URL;
-const temporaryDirectories: string[] = [];
+const originalSeerrUrl = process.env.SEERR_URL;
 
-afterEach(async () => {
+afterEach(() => {
   globalThis.fetch = originalFetch;
-  if (originalSettingsPath === undefined) delete process.env.GARY_SEERR_SETTINGS_PATH;
-  else process.env.GARY_SEERR_SETTINGS_PATH = originalSettingsPath;
-  if (originalSeerrUrl === undefined) delete process.env.GARY_SEERR_URL;
-  else process.env.GARY_SEERR_URL = originalSeerrUrl;
-  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  process.env.SEERR_URL = originalSeerrUrl;
 });
 
-test('preserves a Seerr HTTP rejection when a later fallback cannot connect', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gary-seerr-test-'));
-  temporaryDirectories.push(directory);
-  const settingsPath = join(directory, 'settings.json');
-  await writeFile(settingsPath, JSON.stringify({ main: { apiKey: 'test-key' } }));
-  process.env.GARY_SEERR_SETTINGS_PATH = settingsPath;
-  process.env.GARY_SEERR_URL = 'http://preferred-seerr';
+test('surfaces the Seerr rejection message', async () => {
+  process.env.SEERR_URL = 'http://preferred-seerr';
 
-  globalThis.fetch = (async (input) => {
-    if (String(input).startsWith('http://preferred-seerr')) {
-      return new Response(JSON.stringify({ message: 'Request service is temporarily unavailable' }), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    throw new TypeError('fetch failed');
-  }) as typeof fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ message: 'Request service is temporarily unavailable' }), {
+    status: 503,
+    headers: { 'Content-Type': 'application/json' },
+  })) as typeof fetch;
 
   await assert.rejects(
     searchSeerr('Heat'),
@@ -44,12 +25,7 @@ test('preserves a Seerr HTTP rejection when a later fallback cannot connect', as
 });
 
 test('percent-encodes reserved punctuation in Seerr search queries', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gary-seerr-test-'));
-  temporaryDirectories.push(directory);
-  const settingsPath = join(directory, 'settings.json');
-  await writeFile(settingsPath, JSON.stringify({ main: { apiKey: 'test-key' } }));
-  process.env.GARY_SEERR_SETTINGS_PATH = settingsPath;
-  process.env.GARY_SEERR_URL = 'http://preferred-seerr';
+  process.env.SEERR_URL = 'http://preferred-seerr';
 
   let requestedUrl = '';
   globalThis.fetch = (async (input) => {
@@ -66,12 +42,7 @@ test('percent-encodes reserved punctuation in Seerr search queries', async () =>
 });
 
 test('passes an explicit hard-quality profile through a Seerr request', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gary-seerr-test-'));
-  temporaryDirectories.push(directory);
-  const settingsPath = join(directory, 'settings.json');
-  await writeFile(settingsPath, JSON.stringify({ main: { apiKey: 'test-key' } }));
-  process.env.GARY_SEERR_SETTINGS_PATH = settingsPath;
-  process.env.GARY_SEERR_URL = 'http://preferred-seerr';
+  process.env.SEERR_URL = 'http://preferred-seerr';
 
   let requestBody: Record<string, unknown> = {};
   globalThis.fetch = (async (_input, init) => {
@@ -101,12 +72,7 @@ test('refuses an empty TV season scope before calling Seerr', async () => {
 });
 
 test('recreates the blocklist after deleting matching requests so BLOCKLISTED is the final media status', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gary-seerr-test-'));
-  temporaryDirectories.push(directory);
-  const settingsPath = join(directory, 'settings.json');
-  await writeFile(settingsPath, JSON.stringify({ main: { apiKey: 'test-key' } }));
-  process.env.GARY_SEERR_SETTINGS_PATH = settingsPath;
-  process.env.GARY_SEERR_URL = 'http://preferred-seerr';
+  process.env.SEERR_URL = 'http://preferred-seerr';
   const calls: Array<{ url: string; method: string }> = [];
 
   globalThis.fetch = (async (input, init) => {

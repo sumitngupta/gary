@@ -1,9 +1,10 @@
 import { mkdir, appendFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { MediaRequestCreateInput, MediaRequestCreateOutput } from '../schemas/media-request';
+import { garyConfig } from '../config/gary-config';
 
 function ledgerPath() {
-  return join(process.env.GARY_DATA_DIR || './data', 'media-requests.jsonl');
+  return join(garyConfig().dataDir, 'media-requests.jsonl');
 }
 
 export async function appendMediaRequestLedger(input: MediaRequestCreateInput, output: MediaRequestCreateOutput) {

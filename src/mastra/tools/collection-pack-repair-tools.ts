@@ -3,18 +3,12 @@ import { collectionPackExecuteInputSchema, collectionPackExecuteOutputSchema, co
 import { executeCollectionPackPlan, reviewCollectionPackPlan } from '../services/collection-pack-repair';
 import { appendOperationEvent } from '../services/gary-operations-store';
 import { serverName } from '../config/branding';
+import { mediaOwnerActors } from '../config/gary-config';
 
 function actor(context: ToolExecutionContext | undefined) {
   const channel = context?.requestContext?.get('channel') as { platform?: string; userId?: string } | undefined;
   if (channel?.platform && channel.userId) return `${channel.platform.toLowerCase()}:${channel.userId.replace(/\D/g, '')}`;
   return context?.agent?.resourceId || '';
-}
-function owners() {
-  const values = (process.env.GARY_MEDIA_OWNER_ACTORS || '').split(',').map((value) => value.trim()).filter(Boolean);
-  const supervisor = (process.env.GARY_ADMIN_WHATSAPP || '').replace(/\D/g, '');
-  if (supervisor) values.push(`whatsapp:${supervisor}`);
-  values.push('admin-household');
-  return new Set(values);
 }
 
 export const reviewCollectionPackRepairTool = createTool({
@@ -24,7 +18,7 @@ export const reviewCollectionPackRepairTool = createTool({
   outputSchema: collectionPackReviewOutputSchema,
   execute: async (input, context) => {
     const actorId = actor(context);
-    if (!owners().has(actorId)) return { status: 'denied' as const, items: [], summary: `Collection-pack expansion requires ${serverName()} media owner.`, mutation: false as const };
+    if (!mediaOwnerActors().has(actorId)) return { status: 'denied' as const, items: [], summary: `Collection-pack expansion requires ${serverName()} media owner.`, mutation: false as const };
     try {
       const plan = await reviewCollectionPackPlan(actorId, input.planId);
       if (!plan) return { status: input.planId ? 'expired' as const : 'not-found' as const, items: [], summary: 'No active collection-pack import plan was found.', mutation: false as const };
@@ -43,7 +37,7 @@ export const executeCollectionPackRepairTool = createTool({
   outputSchema: collectionPackExecuteOutputSchema,
   execute: async ({ planId }, context) => {
     const actorId = actor(context);
-    if (!owners().has(actorId)) return { status: 'denied' as const, imported: [], failed: [], summary: `Collection-pack expansion requires ${serverName()} media owner.`, mutation: true as const };
+    if (!mediaOwnerActors().has(actorId)) return { status: 'denied' as const, imported: [], failed: [], summary: `Collection-pack expansion requires ${serverName()} media owner.`, mutation: true as const };
     try {
       const result = await executeCollectionPackPlan(actorId, planId);
       if (!result) return { status: 'expired' as const, imported: [], failed: [], summary: 'That collection-pack plan expired, was already used, or belongs to another user.', mutation: true as const };

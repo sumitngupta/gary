@@ -9,17 +9,12 @@ import { createPlexCollection, deletePlexCollection, listPlexCollections, resolv
 import { collectionOwner, consumePlexCollectionPreview, createPlexCollectionPreview, recordCollectionOwner, recordPlexCollectionEvent, removeCollectionOwner, replaceCollectionOwner } from '../services/plex-collection-store';
 import { createPendingIntent } from '../services/gary-operations-store';
 import { checkMediaStatuses } from './check-media-statuses-tool';
+import { mediaOwnerActors } from '../config/gary-config';
 
 function actor(context: ToolExecutionContext | undefined) {
   const channel = context?.requestContext?.get('channel') as { platform?: string; userId?: string } | undefined;
   if (channel?.platform && channel.userId) return `${channel.platform.toLowerCase()}:${channel.userId.replace(/\D/g, '')}`;
   return context?.agent?.resourceId || '';
-}
-function owners() {
-  const values = (process.env.GARY_MEDIA_OWNER_ACTORS || '').split(',').map((value) => value.trim()).filter(Boolean);
-  const supervisor = (process.env.GARY_ADMIN_WHATSAPP || '').replace(/\D/g, '');
-  if (supervisor) values.push(`whatsapp:${supervisor}`);
-  values.push('admin-household'); return new Set(values);
 }
 async function ownership(ratingKey: string, actorId: string) {
   const owner = await collectionOwner(ratingKey);
@@ -55,7 +50,7 @@ export const previewPlexCollectionChangeTool = createTool({
       if (input.action !== 'create' && !existing) return { status: 'not-found' as const, action: input.action, collectionTitle: input.collectionTitle, available: [], alreadyRequested: [], missing: [], ambiguous: [], removed: [], summary: 'That collection was not found.' };
       if (existing) {
         const owner = await collectionOwner(existing.ratingKey);
-        if (owner !== actorId && !(owners().has(actorId) && !owner)) return { status: 'denied' as const, action: input.action, collectionTitle: input.collectionTitle, available: [], alreadyRequested: [], missing: [], ambiguous: [], removed: [], summary: owner ? 'You can manage only collections you created.' : 'This legacy collection is owner-managed.' };
+        if (owner !== actorId && !(mediaOwnerActors().has(actorId) && !owner)) return { status: 'denied' as const, action: input.action, collectionTitle: input.collectionTitle, available: [], alreadyRequested: [], missing: [], ambiguous: [], removed: [], summary: owner ? 'You can manage only collections you created.' : 'This legacy collection is owner-managed.' };
       }
       const resolutions = await resolveExactPlexLibraryItems([...input.add, ...input.remove]);
       const available: PlexCollectionResolution[] = []; const alreadyRequested: PlexCollectionResolution[] = []; const missing: PlexCollectionResolution[] = []; const ambiguous: PlexCollectionResolution[] = [];

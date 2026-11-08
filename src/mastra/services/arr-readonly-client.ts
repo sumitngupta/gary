@@ -1,7 +1,4 @@
-import { readConfiguredXmlTag } from './media-service-config';
-
-const DEFAULT_SONARR_URL = 'http://sonarr:8989';
-const DEFAULT_RADARR_URL = 'http://radarr:7878';
+import { assertMutationAllowed, requireService } from '../config/gary-config';
 
 type SonarrSeries = {
   id: number;
@@ -37,8 +34,7 @@ export async function adjustSonarrSeasonScope(request: {
   year?: number;
   seasons: number[];
 }) {
-  const apiKey = await sonarrApiKey();
-  const baseUrl = process.env.GARY_SONARR_URL || DEFAULT_SONARR_URL;
+  const { url: baseUrl, apiKey } = requireService('sonarr');
   const allSeries = await arrFetch<SonarrSeries[]>(baseUrl, apiKey, '/api/v3/series');
   const matched = allSeries.find((series) =>
     normalizeTitle(series.title) === normalizeTitle(request.query)
@@ -200,24 +196,6 @@ function normalizeTitle(title: string) {
     .replace(/\s+/g, ' ');
 }
 
-async function sonarrApiKey() {
-  const apiKey = process.env.GARY_SONARR_API_KEY
-    || await readConfiguredXmlTag('GARY_SONARR_CONFIG_PATH', 'ApiKey');
-  if (!apiKey) {
-    throw new Error('Sonarr is not configured: set GARY_SONARR_API_KEY.');
-  }
-  return apiKey;
-}
-
-async function radarrApiKey() {
-  const apiKey = process.env.GARY_RADARR_API_KEY
-    || await readConfiguredXmlTag('GARY_RADARR_CONFIG_PATH', 'ApiKey');
-  if (!apiKey) {
-    throw new Error('Radarr is not configured: set GARY_RADARR_API_KEY.');
-  }
-  return apiKey;
-}
-
 async function arrFetch<T>(baseUrl: string, apiKey: string, path: string): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
     headers: {
@@ -233,6 +211,7 @@ async function arrFetch<T>(baseUrl: string, apiKey: string, path: string): Promi
 }
 
 async function arrPost<T>(baseUrl: string, apiKey: string, path: string, body: unknown): Promise<T> {
+  assertMutationAllowed('change');
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: {
@@ -250,6 +229,7 @@ async function arrPost<T>(baseUrl: string, apiKey: string, path: string, body: u
 }
 
 async function arrPut<T>(baseUrl: string, apiKey: string, path: string, body: unknown): Promise<T> {
+  assertMutationAllowed('change');
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'PUT',
     headers: {
@@ -267,6 +247,7 @@ async function arrPut<T>(baseUrl: string, apiKey: string, path: string, body: un
 }
 
 async function arrDelete(baseUrl: string, apiKey: string, path: string, toleratedStatuses: number[] = []): Promise<void> {
+  assertMutationAllowed('change');
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'DELETE',
     headers: { 'X-Api-Key': apiKey },
@@ -305,8 +286,7 @@ export async function getSonarrSeriesStatus(request: {
   tmdbId?: number;
   tvdbId?: number;
 }) {
-  const apiKey = await sonarrApiKey();
-  const baseUrl = process.env.GARY_SONARR_URL || DEFAULT_SONARR_URL;
+  const { url: baseUrl, apiKey } = requireService('sonarr');
   const allSeries = await arrFetch<SonarrSeries[]>(baseUrl, apiKey, '/api/v3/series');
   const series = bestTitleMatch(allSeries, request);
 
@@ -339,8 +319,7 @@ export async function getSonarrSeriesDiagnostics(request: {
   historyLimit?: number;
   blocklistLimit?: number;
 }) {
-  const apiKey = await sonarrApiKey();
-  const baseUrl = process.env.GARY_SONARR_URL || DEFAULT_SONARR_URL;
+  const { url: baseUrl, apiKey } = requireService('sonarr');
   const allSeries = await arrFetch<SonarrSeries[]>(baseUrl, apiKey, '/api/v3/series');
   const series = bestTitleMatch(allSeries, request);
 
@@ -414,8 +393,7 @@ export async function getRadarrMovieStatus(request: {
   year?: number;
   tmdbId?: number;
 }) {
-  const apiKey = await radarrApiKey();
-  const baseUrl = process.env.GARY_RADARR_URL || DEFAULT_RADARR_URL;
+  const { url: baseUrl, apiKey } = requireService('radarr');
   const allMovies = await arrFetch<RadarrMovie[]>(baseUrl, apiKey, '/api/v3/movie');
   const movie = bestTitleMatch(allMovies, request);
 
@@ -481,8 +459,7 @@ export async function getArrMediaQualityAudit(request: {
     };
   }
 
-  const apiKey = await sonarrApiKey();
-  const baseUrl = process.env.GARY_SONARR_URL || DEFAULT_SONARR_URL;
+  const { url: baseUrl, apiKey } = requireService('sonarr');
   const status = await getSonarrSeriesStatus(request);
   if (!status) return undefined;
   const files = await arrFetch<ArrFileQuality[]>(baseUrl, apiKey, arrPath('/api/v3/episodefile', { seriesId: status.series.id }));
@@ -497,13 +474,13 @@ export async function getArrMediaQualityAudit(request: {
 
 export async function applyArrHardQualityProfileAndSearch(item: { mediaType: 'movie' | 'tv'; arrId: number; targetProfileId: number }) {
   if (item.mediaType === 'movie') {
-    const apiKey = await radarrApiKey(); const baseUrl = process.env.GARY_RADARR_URL || DEFAULT_RADARR_URL;
+    const { url: baseUrl, apiKey } = requireService('radarr');
     const movie = await arrFetch<RadarrMovie>(baseUrl, apiKey, `/api/v3/movie/${item.arrId}`);
     await arrPut(baseUrl, apiKey, `/api/v3/movie/${item.arrId}`, { ...movie, qualityProfileId: item.targetProfileId, monitored: true });
     const command = await arrPost<{ id?: number; name?: string; status?: string }>(baseUrl, apiKey, '/api/v3/command', { name: 'MoviesSearch', movieIds: [item.arrId] });
     return { commandId: command.id, commandName: command.name || 'MoviesSearch', commandStatus: command.status };
   }
-  const apiKey = await sonarrApiKey(); const baseUrl = process.env.GARY_SONARR_URL || DEFAULT_SONARR_URL;
+  const { url: baseUrl, apiKey } = requireService('sonarr');
   const series = await arrFetch<SonarrSeries>(baseUrl, apiKey, `/api/v3/series/${item.arrId}`);
   await arrPut(baseUrl, apiKey, `/api/v3/series/${item.arrId}`, { ...series, qualityProfileId: item.targetProfileId, monitored: true });
   const command = await arrPost<{ id?: number; name?: string; status?: string }>(baseUrl, apiKey, '/api/v3/command', { name: 'SeriesSearch', seriesId: item.arrId });
@@ -511,8 +488,7 @@ export async function applyArrHardQualityProfileAndSearch(item: { mediaType: 'mo
 }
 
 export async function deleteSonarrSeries(seriesId: number) {
-  const apiKey = await sonarrApiKey();
-  const baseUrl = process.env.GARY_SONARR_URL || DEFAULT_SONARR_URL;
+  const { url: baseUrl, apiKey } = requireService('sonarr');
   await arrDelete(baseUrl, apiKey, arrPath(`/api/v3/series/${seriesId}`, {
     deleteFiles: true,
     addImportListExclusion: true,
@@ -536,22 +512,19 @@ async function cancelMatchingCommands(
 }
 
 export async function cancelSonarrCommandsForSeries(seriesId: number) {
-  const apiKey = await sonarrApiKey();
-  const baseUrl = process.env.GARY_SONARR_URL || DEFAULT_SONARR_URL;
+  const { url: baseUrl, apiKey } = requireService('sonarr');
   return await cancelMatchingCommands(baseUrl, apiKey, (command) => command.body?.seriesId === seriesId);
 }
 
 export async function cancelRadarrCommandsForMovie(movieId: number) {
-  const apiKey = await radarrApiKey();
-  const baseUrl = process.env.GARY_RADARR_URL || DEFAULT_RADARR_URL;
+  const { url: baseUrl, apiKey } = requireService('radarr');
   return await cancelMatchingCommands(baseUrl, apiKey, (command) =>
     command.body?.movieId === movieId || command.body?.movieIds?.includes(movieId) === true
   );
 }
 
 export async function deleteRadarrMovie(movieId: number) {
-  const apiKey = await radarrApiKey();
-  const baseUrl = process.env.GARY_RADARR_URL || DEFAULT_RADARR_URL;
+  const { url: baseUrl, apiKey } = requireService('radarr');
   await arrDelete(baseUrl, apiKey, arrPath(`/api/v3/movie/${movieId}`, {
     deleteFiles: true,
     addImportExclusion: true,
@@ -566,8 +539,7 @@ export async function triggerSonarrSeriesSearch(request: {
   seasonNumber?: number;
   monitorSeason?: boolean;
 }) {
-  const apiKey = await sonarrApiKey();
-  const baseUrl = process.env.GARY_SONARR_URL || DEFAULT_SONARR_URL;
+  const { url: baseUrl, apiKey } = requireService('sonarr');
   const allSeries = await arrFetch<SonarrSeries[]>(baseUrl, apiKey, '/api/v3/series');
   const series = bestTitleMatch(allSeries, request);
 
@@ -696,8 +668,7 @@ export async function triggerRadarrMovieSearch(request: {
   year?: number;
   tmdbId?: number;
 }) {
-  const apiKey = await radarrApiKey();
-  const baseUrl = process.env.GARY_RADARR_URL || DEFAULT_RADARR_URL;
+  const { url: baseUrl, apiKey } = requireService('radarr');
   const allMovies = await arrFetch<RadarrMovie[]>(baseUrl, apiKey, '/api/v3/movie');
   const movie = bestTitleMatch(allMovies, request);
 

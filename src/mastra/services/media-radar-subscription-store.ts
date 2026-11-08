@@ -4,9 +4,9 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { mediaRadarSubscriptionSchema, type MediaRadarSubscription } from '../schemas/media-radar-subscription';
+import { garyConfig } from '../config/gary-config';
 
-const path = () => process.env.GARY_MEDIA_RADAR_STORE_PATH
-  || join(process.env.GARY_DATA_DIR || './data', 'media-radar-subscriptions.json');
+const path = () => join(garyConfig().dataDir, 'media-radar-subscriptions.json');
 
 async function readStore(): Promise<MediaRadarSubscription[]> {
   try {

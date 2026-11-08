@@ -10,7 +10,7 @@ test('classifies media storage pressure using bounded thresholds', async () => {
   const path = join(directory, 'disk.json');
   try {
     await writeFile(path, JSON.stringify({ pct: 86, avail: '2.6 TB' }));
-    assert.deepEqual(await readStorageHealth(path), {
+    assert.deepEqual(await readStorageHealth(path, 85, 92), {
       status: 'warning',
       usedPercent: 86,
       available: '2.6 TB',
@@ -23,7 +23,7 @@ test('classifies media storage pressure using bounded thresholds', async () => {
 });
 
 test('fails closed when the storage snapshot is unavailable', async () => {
-  const health = await readStorageHealth('/does/not/exist');
+  const health = await readStorageHealth('/does/not/exist', 85, 92);
   assert.equal(health.status, 'unavailable');
   assert.equal(health.usedPercent, null);
 });

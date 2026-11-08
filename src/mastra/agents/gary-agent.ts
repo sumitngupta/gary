@@ -2,14 +2,8 @@ import { Agent } from '@mastra/core/agent';
 import type { ChannelHandler } from '@mastra/core/channels';
 import { Memory } from '@mastra/memory';
 import { ToolSearchProcessor, UnicodeNormalizer } from '@mastra/core/processors';
-import {
-  FLEET_MODEL_USE_CASE_CONTEXT_KEY,
-  fleetModels,
-  fleetProviderOptions,
-  resolveFleetModel,
-  resolveGaryFleetModel,
-  type FleetModelUseCase,
-} from '../services/fleet-model-policy';
+import { garyConfig } from '../config/gary-config';
+import { garyLanguageModel, garyProviderOptions } from '../config/model';
 import { responseHygieneProcessor } from '../processors/response-hygiene-processor';
 import { EnsureFinalResponseProcessor } from '../processors/ensure-final-response-processor';
 import { GaryPerformanceProcessor } from '../processors/gary-performance-processor';
@@ -47,10 +41,7 @@ import {
 import { transcribeWhatsAppVoice } from '../services/whatsapp-voice-transcription';
 import { createGaryWhatsAppAdapter, garyWhatsAppResourceId } from '../services/gary-whatsapp-adapter';
 import { GARY_DELETE_CONFIRMATION_PHRASE, wasGaryDeletionConsumedSince } from '../services/gary-confirmation-store';
-import {
-  assertModelEvaluationToolAllowed,
-  modelEvaluationModeEnabled,
-} from '../services/model-evaluation-safety';
+import { assertReadOnlyToolAllowed } from '../services/read-only-mode';
 import { garyMediaRepairSkill } from '../skills/gary-media-repair';
 import { garyMediaConciergeSkill } from '../skills/gary-media-concierge';
 import { garyLinkedMediaResearchSkill } from '../skills/gary-linked-media-research';
@@ -115,21 +106,14 @@ async function reconcileViewingAfterOnboarding(resourceId: string, preferredName
   }
 }
 
-export const garyWhatsAppAdapter =
-  !modelEvaluationModeEnabled() &&
-  process.env.GARY_WHATSAPP_ACCESS_TOKEN &&
-  process.env.GARY_WHATSAPP_APP_SECRET &&
-  process.env.GARY_WHATSAPP_PHONE_NUMBER_ID &&
-  process.env.GARY_WHATSAPP_VERIFY_TOKEN
-    ? createGaryWhatsAppAdapter({
-        accessToken: process.env.GARY_WHATSAPP_ACCESS_TOKEN,
-        appSecret: process.env.GARY_WHATSAPP_APP_SECRET,
-        phoneNumberId: process.env.GARY_WHATSAPP_PHONE_NUMBER_ID,
-        verifyToken: process.env.GARY_WHATSAPP_VERIFY_TOKEN,
-        apiVersion: process.env.GARY_WHATSAPP_GRAPH_VERSION || 'v25.0',
-        userName: 'gary',
-      })
-    : undefined;
+function createConfiguredWhatsAppAdapter() {
+  const config = garyConfig();
+  const { accessToken, appSecret, phoneNumberId, verifyToken, graphVersion } = config.whatsapp;
+  if (config.readOnly || !accessToken || !appSecret || !phoneNumberId || !verifyToken) return undefined;
+  return createGaryWhatsAppAdapter({ accessToken, appSecret, phoneNumberId, verifyToken, apiVersion: graphVersion, userName: 'gary' });
+}
+
+export const garyWhatsAppAdapter = createConfiguredWhatsAppAdapter();
 
 const garyPerformanceProcessor = new GaryPerformanceProcessor();
 const garyWhatsAppTurnQueue = new KeyedTaskQueue();
@@ -145,12 +129,13 @@ const processGaryWhatsAppTurn: ChannelHandler = async (thread, message, defaultH
     actorId,
   };
   console.info(JSON.stringify({ ...logBase, phase: 'handler-started' }));
-  if (process.env.GARY_WHATSAPP_ENABLED !== 'true' || !actorId) {
+  const whatsappEnabled = garyConfig().whatsapp.enabled;
+  if (!whatsappEnabled || !actorId) {
     console.warn(JSON.stringify({
       event: 'gary.whatsapp.denied',
       messageId: message.id,
       actorId,
-      reason: process.env.GARY_WHATSAPP_ENABLED === 'true' ? 'invalid-actor' : 'disabled',
+      reason: whatsappEnabled ? 'invalid-actor' : 'disabled',
     }));
     return;
   }
@@ -356,8 +341,6 @@ const garyWhatsAppHandler: ChannelHandler = async (thread, message, defaultHandl
   });
 };
 
-const garyAgentModelOverride = process.env.GARY_AGENT_MODEL;
-const garyTitleModel = garyAgentModelOverride || fleetModels.gary;
 // Scheduled radars need enough room for discovery, finalist evidence, one
 // batch status check, delivery recording, and a final answer. Production runs
 // exhausted 18 steps even with the bounded prompt contract.
@@ -383,20 +366,12 @@ const garyRareTools = {
   manageGaryViewingProfile: manageGaryViewingProfileTool,
 };
 
-function resolveGaryAgentModel(requestContext: { get: (key: string) => unknown }) {
-  if (garyAgentModelOverride) return garyAgentModelOverride;
-  const useCase = requestContext.get(FLEET_MODEL_USE_CASE_CONTEXT_KEY);
-  return resolveGaryFleetModel(typeof useCase === 'string' ? useCase as FleetModelUseCase : 'default');
-}
-
 export const garyMemory = new Memory({
   options: {
     lastMessages: 20,
     semanticRecall: false,
     generateTitle: {
-      // Keep auxiliary title generation on the same Beta model family as the
-      // conversation path. Titles are bounded, non-authoritative output.
-      model: garyTitleModel,
+      model: garyLanguageModel(),
       instructions: 'Generate a short media-concierge thread title. Use at most six words.',
     },
   },
@@ -407,14 +382,11 @@ export const garyAgent = new Agent({
   name: 'Gary',
   description:
     'Media concierge for safe content request intake, requester notifications, and future media-stack operations.',
-  model: ({ requestContext }) => resolveGaryAgentModel(requestContext),
+  model: garyLanguageModel(),
   // Scheduled recommendation runs routinely need search, library filtering,
   // deduplication, and a final response. Mastra's small default step budget
   // can stop after the tools without producing a deliverable digest.
-  defaultOptions: ({ requestContext }) => {
-    const model = resolveGaryAgentModel(requestContext);
-    return { maxSteps: GARY_MAX_STEPS, providerOptions: fleetProviderOptions(model) };
-  },
+  defaultOptions: { maxSteps: GARY_MAX_STEPS, providerOptions: garyProviderOptions() },
   memory: garyMemory,
   skills: [garyMediaConciergeSkill, garyLinkedMediaResearchSkill, garyHouseholdCommunicationSkill, garyMediaRepairSkill],
   inputProcessors: [
@@ -450,7 +422,7 @@ export const garyAgent = new Agent({
     : {}),
   hooks: {
     beforeToolCall: async ({ toolName, input, context }) => {
-      assertModelEvaluationToolAllowed(toolName);
+      assertReadOnlyToolAllowed(toolName);
       const toolContext = context as GaryToolContext;
       const whatsapp = whatsappChannelContext(toolContext);
       const decision = await enforceGaryAccessPolicy({

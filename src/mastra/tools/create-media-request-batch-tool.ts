@@ -6,6 +6,7 @@ import { createMediaRequest, ensureMediaRequestLifecycleWatch } from './create-m
 import { appendOperationEvent, checkpointOperationBatch, getOperationBatch } from '../services/gary-operations-store';
 import { checkGaryMediaHealthGate } from '../services/gary-media-health-gate';
 import { serverNameTitle } from '../config/branding';
+import { garyConfig } from '../config/gary-config';
 
 export const plannedBatchItemSchema = z.object({
   ordinal: z.number().int().nonnegative(),
@@ -50,7 +51,7 @@ export const createMediaRequestBatchTool = createTool({
     }
     const items = z.array(plannedBatchItemSchema).parse(batch.requests);
     const stored = new Map((batch.results as Array<z.infer<typeof batchResultSchema>>).map((result) => [result.ordinal, result]));
-    const throttleMs = Math.min(Math.max(Number(process.env.GARY_BATCH_THROTTLE_MS || 500), 0), 10_000);
+    const throttleMs = garyConfig().requests.batchThrottleMs;
     let pauseReason: string | undefined;
     await appendOperationEvent({ correlationId: batch.correlationId, resourceId, threadId, batchId, phase: batch.status === 'approved' ? 'batch-started' : 'batch-resumed' });
 

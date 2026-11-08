@@ -4,6 +4,8 @@ import { createGaryEscalation, getGaryUserProfile, markGaryEscalationDelivered }
 import { profileDedupeKey } from './manage-gary-profile-tool';
 import { enqueueGaryEscalation, recordGaryEscalationDelivery } from '../services/gary-operations-store';
 import { randomUUID } from 'node:crypto';
+import { adminName } from '../config/branding';
+import { assertMutationAllowed, garyConfig } from '../config/gary-config';
 
 export const escalateToGarySupervisorTool = createTool({
   id: 'escalate-to-gary-supervisor',
@@ -13,7 +15,8 @@ export const escalateToGarySupervisorTool = createTool({
   execute: async (input, context) => {
     const resourceId = context.agent?.resourceId;
     const threadId = context.agent?.threadId;
-    const supervisor = (process.env.GARY_ADMIN_WHATSAPP || '').replace(/\D/g, '');
+    const config = garyConfig();
+    const supervisor = config.owners.adminWhatsApp;
     if (!resourceId || !threadId || !supervisor) return { status: 'service-unavailable', summary: 'I could not reach my supervisor channel right now.' };
     const profile = await getGaryUserProfile(resourceId);
     const escalation = await createGaryEscalation({ resourceId, requesterName: profile?.preferredName, summary: input.summary, reason: input.reason, dedupeKey: profileDedupeKey(input.summary, input.reason) });
@@ -22,15 +25,15 @@ export const escalateToGarySupervisorTool = createTool({
       : { status: 'recorded', summary: 'This request is recorded, but delivery to my supervisor has not been confirmed.', escalationId: escalation.id };
     if (!escalation.id) return { status: 'service-unavailable', summary: 'I could not record this request for my supervisor.' };
     const channel = context.requestContext?.get('channel') as { messageId?: string } | undefined;
-    const queueId = await enqueueGaryEscalation({ resourceId, threadId, correlationId: channel?.messageId || randomUUID(), owner: process.env.GARY_ADMIN_NAME || 'admin', reason: input.reason, error: { summary: input.summary, legacyEscalationId: escalation.id } });
-    const token = process.env.GARY_WHATSAPP_ACCESS_TOKEN;
-    const phoneNumberId = process.env.GARY_WHATSAPP_PHONE_NUMBER_ID;
+    const queueId = await enqueueGaryEscalation({ resourceId, threadId, correlationId: channel?.messageId || randomUUID(), owner: adminName(), reason: input.reason, error: { summary: input.summary, legacyEscalationId: escalation.id } });
+    const { accessToken: token, phoneNumberId, graphVersion } = config.whatsapp;
     if (!token || !phoneNumberId) {
       await recordGaryEscalationDelivery(queueId, { status: 'unavailable', error: 'WhatsApp supervisor delivery is not configured' });
       return { status: 'recorded', summary: 'I recorded this for my supervisor, but the notification channel is temporarily unavailable.', escalationId: escalation.id };
     }
+    assertMutationAllowed('message');
     const requester = profile?.preferredName || resourceId.replace(/^whatsapp:/, 'WhatsApp user ');
-    const response = await fetch(`https://graph.facebook.com/${process.env.GARY_WHATSAPP_GRAPH_VERSION || 'v25.0'}/${phoneNumberId}/messages`, {
+    const response = await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: supervisor, type: 'text', text: { preview_url: false, body: `Gary escalation from ${requester}: ${input.summary}\n\nWhy Gary escalated: ${input.reason}\nReference: ${escalation.id}` } }),
     });
@@ -42,6 +45,6 @@ export const escalateToGarySupervisorTool = createTool({
     }
     await markGaryEscalationDelivered(escalation.id, messageId);
     await recordGaryEscalationDelivery(queueId, { status: 'sent', messageId });
-    return { status: 'sent', summary: `I passed that to ${process.env.GARY_ADMIN_NAME || 'my supervisor'}.`, escalationId: escalation.id };
+    return { status: 'sent', summary: `I passed that to ${adminName()}.`, escalationId: escalation.id };
   },
 });

@@ -1,10 +1,4 @@
-import { readFile } from 'node:fs/promises';
-
-type SeerrSettings = {
-  main?: {
-    apiKey?: string;
-  };
-};
+import { assertMutationAllowed, requireService } from '../config/gary-config';
 
 type SeerrSearchResult = {
   id: number;
@@ -67,8 +61,6 @@ type CreatedSeerrRequestRecord = SeerrRequestRecord & {
   };
 };
 
-const DEFAULT_SEERR_URLS = ['http://seerr:5055', 'http://127.0.0.1:5055'];
-
 export const seerrMediaStatusLabels = new Map<number, string>([
   [1, 'unknown'],
   [2, 'pending'],
@@ -86,13 +78,6 @@ export const seerrRequestStatusLabels = new Map<number, string>([
   [4, 'failed'],
   [5, 'completed'],
 ]);
-
-function configuredBaseUrls() {
-  return [...new Set([
-    process.env.GARY_SEERR_URL,
-    ...DEFAULT_SEERR_URLS,
-  ].filter((url): url is string => Boolean(url)))];
-}
 
 async function seerrHttpError(response: Response) {
   let detail = '';
@@ -115,50 +100,20 @@ async function seerrHttpError(response: Response) {
   return new Error(`Seerr returned HTTP ${response.status}${safeDetail ? `: ${safeDetail}` : ''}`);
 }
 
-async function readApiKey() {
-  if (process.env.GARY_SEERR_API_KEY) return process.env.GARY_SEERR_API_KEY;
-  const settingsPath = process.env.GARY_SEERR_SETTINGS_PATH;
-  if (!settingsPath) throw new Error('Seerr is not configured: set GARY_SEERR_API_KEY.');
-  const settings = JSON.parse(await readFile(settingsPath, 'utf8')) as SeerrSettings;
-
-  if (!settings.main?.apiKey) {
-    throw new Error('Seerr API key was not found in settings.json.');
-  }
-
-  return settings.main.apiKey;
-}
-
 async function seerrFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const apiKey = await readApiKey();
-  let lastHttpError: Error | undefined;
-  let lastTransportError: Error | undefined;
-
-  for (const baseUrl of configuredBaseUrls()) {
-    try {
-      const response = await fetch(`${baseUrl}${path}`, {
-        ...init,
-        headers: {
-          ...init?.headers,
-          'X-Api-Key': apiKey,
-        },
-      });
-
-      if (!response.ok) {
-        lastHttpError = await seerrHttpError(response);
-        continue;
-      }
-
-      if (response.status === 204) return undefined as T;
-      const body = await response.text();
-      return (body ? JSON.parse(body) : undefined) as T;
-    } catch (error) {
-      lastTransportError = error instanceof Error ? error : new Error(String(error));
-    }
-  }
-
-  // Prefer an actual Seerr response over a later fallback connection failure.
-  // This keeps the useful rejection reason instead of reducing it to `fetch failed`.
-  throw lastHttpError || lastTransportError || new Error('No Seerr endpoint is configured.');
+  const { url, apiKey } = requireService('seerr');
+  if (init?.method && init.method !== 'GET') assertMutationAllowed('change');
+  const response = await fetch(`${url}${path}`, {
+    ...init,
+    headers: {
+      ...init?.headers,
+      'X-Api-Key': apiKey,
+    },
+  });
+  if (!response.ok) throw await seerrHttpError(response);
+  if (response.status === 204) return undefined as T;
+  const body = await response.text();
+  return (body ? JSON.parse(body) : undefined) as T;
 }
 
 export function seerrTitle(result: SeerrSearchResult) {
@@ -233,6 +188,7 @@ export async function createSeerrRequest(request: CreateSeerrRequestInput) {
   if (request.mediaType === 'tv' && Array.isArray(request.seasons) && request.seasons.length === 0) {
     throw new Error('Refusing to create a TV request without an explicit non-empty season scope');
   }
+  assertMutationAllowed('request');
   return await seerrFetch<CreatedSeerrRequestRecord>('/api/v1/request', {
     method: 'POST',
     headers: {

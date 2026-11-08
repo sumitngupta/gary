@@ -3,10 +3,11 @@ import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createClient, type Client } from '@libsql/client';
 import type { PlexCollectionPreviewInput, PlexCollectionResolution } from '../schemas/plex-collection';
+import { garyConfig } from '../config/gary-config';
 
 export type StoredPlexCollectionPreview = { id: string; actorId: string; input: PlexCollectionPreviewInput; collectionRatingKey?: string; before?: unknown; available: PlexCollectionResolution[]; alreadyRequested: PlexCollectionResolution[]; missing: PlexCollectionResolution[]; ambiguous: PlexCollectionResolution[]; removed: PlexCollectionResolution[]; createdAt: string; expiresAt: string };
 let client: Client | undefined; let initialized: Promise<void> | undefined;
-function path() { return `${process.env.GARY_DATA_DIR || './data'}/plex-collections.db`; }
+function path() { return `${garyConfig().dataDir}/plex-collections.db`; }
 async function db() {
   if (!client) { await mkdir(dirname(path()), { recursive: true }); client = createClient({ url: `file:${path()}` }); initialized = client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS plex_collection_ownership (rating_key TEXT PRIMARY KEY, actor_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);

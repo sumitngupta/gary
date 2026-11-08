@@ -1,12 +1,12 @@
 import { isGaryWhatsAppActorAuthorized } from './gary-access-policy';
+import { assertMutationAllowed, garyConfig } from '../config/gary-config';
 
 export async function sendWhatsAppMediaRadar(resourceId: string, text: string) {
   const to = resourceId.match(/^whatsapp:(\d+)$/)?.[1];
-  const accessToken = process.env.GARY_WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = process.env.GARY_WHATSAPP_PHONE_NUMBER_ID;
-  const graphVersion = process.env.GARY_WHATSAPP_GRAPH_VERSION || 'v25.0';
+  const { accessToken, phoneNumberId, graphVersion } = garyConfig().whatsapp;
   if (!to || !await isGaryWhatsAppActorAuthorized(to)) throw new Error('WhatsApp radar target is not allowlisted.');
   if (!accessToken || !phoneNumberId) throw new Error('WhatsApp radar delivery is not configured.');
+  assertMutationAllowed('message');
   const response = await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },

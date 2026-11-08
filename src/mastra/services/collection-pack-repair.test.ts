@@ -19,8 +19,8 @@ test('pack recovery imports only the approved target and freezes siblings for ow
   const originalFetch = global.fetch;
   const calls: Array<{ url: string; body?: unknown }> = [];
   process.env.GARY_DATA_DIR = directory;
-  process.env.GARY_RADARR_API_KEY = 'test-key';
-  process.env.GARY_RADARR_URL = 'http://radarr.test';
+  process.env.RADARR_API_KEY = 'test-key';
+  process.env.RADARR_URL = 'http://radarr.test';
   process.env.GARY_ADMIN_WHATSAPP = '15550001';
   resetCollectionPackRepairStoreForTests(); resetGaryOperationsStoreForTests();
   const target = { id: 10, title: 'Wallace & Gromit: Vengeance Most Fowl', year: 2024, tmdbId: 929204, qualityProfileId: 6, path: '/data/media/movies/Wallace & Gromit - Vengeance Most Fowl (2024)' };

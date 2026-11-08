@@ -7,16 +7,14 @@ import {
   type MediaAvailabilityWatchInput,
   type MediaAvailabilityWatchSnapshot,
 } from '../schemas/media-availability-watch';
+import { garyConfig } from '../config/gary-config';
 
 type WatchStoreFile = {
   watches: MediaAvailabilityWatch[];
 };
 
-const DEFAULT_DATA_DIR = './data';
-
 function storePath() {
-  return process.env.GARY_MEDIA_WATCH_STORE_PATH
-    || join(process.env.GARY_DATA_DIR || DEFAULT_DATA_DIR, 'media-availability-watches.json');
+  return join(garyConfig().dataDir, 'media-availability-watches.json');
 }
 
 function normalizedTitle(title: string) {
