@@ -1,0 +1,33 @@
+import { registerApiRoute } from '@mastra/core/server';
+import { garyWhatsAppAdapter } from '../agents/gary-agent';
+
+// Mastra's generated channel route is POST-only. Meta verifies Cloud API
+// subscriptions with a GET challenge on the same path, so bridge that method
+// directly to the official adapter while leaving POST delivery to Channels.
+export const whatsappGaryVerificationRoute = registerApiRoute(
+  '/gary/webhooks/whatsapp',
+  {
+    method: 'GET',
+    requiresAuth: false,
+    handler: async (c) => {
+      if (!garyWhatsAppAdapter) {
+        return c.text('WhatsApp is not configured', 503);
+      }
+      return garyWhatsAppAdapter.handleWebhook(c.req.raw);
+    },
+  },
+);
+
+export const whatsappGaryDeliveryRoute = registerApiRoute(
+  '/gary/webhooks/whatsapp',
+  {
+    method: 'POST',
+    requiresAuth: false,
+    handler: async (c) => {
+      if (!garyWhatsAppAdapter) {
+        return c.text('WhatsApp is not configured', 503);
+      }
+      return garyWhatsAppAdapter.handleWebhook(c.req.raw);
+    },
+  },
+);
