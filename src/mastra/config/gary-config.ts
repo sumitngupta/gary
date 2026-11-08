@@ -174,8 +174,8 @@ function parseServices(env: GaryEnv, problems: string[]) {
     else if (url) problems.push(`${spec.key} is required when ${spec.url} is set.`);
     else if (apiKey) problems.push(`${spec.url} is required when ${spec.key} is set.`);
   }
-  if (!services.seerr && !(services.sonarr && services.radarr)) {
-    problems.push('No request backend is configured. Set SEERR_URL and SEERR_API_KEY, or set SONARR_URL, SONARR_API_KEY, RADARR_URL and RADARR_API_KEY.');
+  if (!env.SEERR_URL && !env.SEERR_API_KEY) {
+    problems.push('Seerr is required: Gary sends every media request through it. Set SEERR_URL and SEERR_API_KEY.');
   }
   return services;
 }

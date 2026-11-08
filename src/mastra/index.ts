@@ -1,3 +1,4 @@
+import { bootConfig } from './config/boot';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { Mastra } from '@mastra/core/mastra';
@@ -21,9 +22,8 @@ import { garyMediaQualityWorkflow } from './workflows/gary-media-quality-workflo
 import { garyRecommendationVerificationWorkflow } from './workflows/gary-recommendation-verification-workflow';
 import { garyTitleResolutionWorkflow } from './workflows/gary-title-resolution-workflow';
 import { mediaAvailabilityWatchWorkflow } from './workflows/media-availability-watch-workflow';
-import { garyConfig } from './config/gary-config';
 
-const config = garyConfig();
+const config = bootConfig;
 mkdirSync(config.dataDir, { recursive: true });
 
 function isMediaRadarSchedule(agentId: string, metadata: unknown) {

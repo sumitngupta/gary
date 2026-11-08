@@ -24,19 +24,16 @@ test('a Seerr-only configuration parses with documented defaults', () => {
   assert.deepEqual(config.model, { model: 'openai/gpt-5.6-luna', apiKey: 'llm-key', transcribeModel: 'gpt-4o-mini-transcribe' });
 });
 
-test('a missing request backend fails and names the variables to set', () => {
-  assert.deepEqual(problems({ LLM_API_KEY: 'llm-key', SONARR_URL: 'http://sonarr.test', SONARR_API_KEY: 'k' }), [
-    'No request backend is configured. Set SEERR_URL and SEERR_API_KEY, or set SONARR_URL, SONARR_API_KEY, RADARR_URL and RADARR_API_KEY.',
-  ]);
-});
-
-test('Sonarr plus Radarr counts as a request backend', () => {
-  const config = parseGaryConfig({
+test('Seerr is required even when Sonarr and Radarr are configured', () => {
+  assert.deepEqual(problems({
     LLM_API_KEY: 'llm-key',
     SONARR_URL: 'http://sonarr.test', SONARR_API_KEY: 'sonarr-key',
     RADARR_URL: 'http://radarr.test', RADARR_API_KEY: 'radarr-key',
-  });
-  assert.deepEqual(Object.keys(config.services), ['sonarr', 'radarr']);
+  }), ['Seerr is required: Gary sends every media request through it. Set SEERR_URL and SEERR_API_KEY.']);
+});
+
+test('a half-configured Seerr block reports only the missing half', () => {
+  assert.deepEqual(problems({ LLM_API_KEY: 'llm-key', SEERR_URL: 'http://seerr.test' }), ['SEERR_API_KEY is required when SEERR_URL is set.']);
 });
 
 test('a half-configured service block fails and names the missing variable', () => {
