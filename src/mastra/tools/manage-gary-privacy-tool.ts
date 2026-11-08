@@ -16,11 +16,12 @@ import { deleteGaryMessageReferencesForActor } from '../services/gary-conversati
 import { deleteGaryOperationsForResource } from '../services/gary-operations-store';
 import { deleteGaryListsForResource, exportGaryListsForResource } from '../services/gary-list-store';
 import { syncGaryListShelves } from '../services/gary-list-shelf-sync';
-import { serverName } from '../config/branding';
+import { adminName, serverName } from '../config/branding';
+import { forgetPerson, userIdFromResource } from '../channels/people';
 
 export const manageGaryPrivacyTool = createTool({
   id: 'manage-gary-privacy',
-  description: 'Export a bounded summary of the current user’s Gary data or permanently delete that user’s Gary conversations, lists, watches, subscriptions, and policy records.',
+  description: 'Export a bounded summary of the current user’s Gary data or permanently delete that user’s Gary conversations, lists, watches, subscriptions, policy records, and linked chats and browsers.',
   inputSchema: z.object({ action: z.enum(['export', 'delete', 'cancel-delete']), confirmDelete: z.boolean().default(false) }),
   outputSchema: z.object({ status: z.string(), summary: z.string(), data: z.record(z.string(), z.unknown()).optional() }),
   execute: async (input, context) => {
@@ -74,7 +75,7 @@ export const manageGaryPrivacyTool = createTool({
       const confirmation = await beginGaryDeletionConfirmation(resourceId);
       return {
         status: 'confirmation-required',
-        summary: `This permanently deletes your Gary conversations, lists, availability watches, recurring radars and their schedules, and Gary policy/event history. Any list you published to Plex comes down too. It does not delete media from ${serverName()}. To continue within 15 minutes, reply exactly: ${confirmation.phrase}. You can also say cancel deletion.`,
+        summary: `This permanently deletes your Gary conversations, lists, availability watches, recurring radars and their schedules, and Gary policy/event history. Any list you published to Plex comes down too. It also disconnects every chat app and browser linked to you, so you will need a new invite code from ${adminName()} to use Gary again. It does not delete media from ${serverName()}. To continue within 15 minutes, reply exactly: ${confirmation.phrase}. You can also say cancel deletion.`,
       };
     }
     const confirmed = await consumeGaryDeletionConfirmation(resourceId, GARY_DELETE_CONFIRMATION_PHRASE);
@@ -99,10 +100,12 @@ export const manageGaryPrivacyTool = createTool({
       deleteGaryOperationsForResource(resourceId),
       deleteGaryListsForResource(resourceId),
     ]);
+    const userId = userIdFromResource(resourceId);
+    const deletedIdentities = userId ? await forgetPerson(userId) : 0;
     const shelfSync = await syncGaryListShelves({ resourceId }).catch((error: unknown) => ({ changes: [], errors: [String(error)] }));
     const shelvesPending = shelfSync.errors.length > 0 || shelfSync.changes.some((change) => change.outcome === 'failed');
     const shelfNote = deletedLists.shelves === 0 && shelfSync.changes.length === 0 ? ''
       : shelvesPending ? ' Plex did not take your published shelves down yet; Gary tries again every night.' : ' Your published shelves are gone from Plex.';
-    return { status: 'deleted', summary: `Deleted ${threads.threads.length} conversation(s), ${deletedLists.lists} list(s) with ${deletedLists.items} title(s), ${deletedWatches} watch record(s), ${deletedSubscriptions} radar record(s), ${deletedProfileRecords} profile/escalation record(s), ${deletedViewingRecords} viewing-profile record(s), ${deletedNotificationDeliveries} notification delivery record(s), ${deletedMessageReferences} message reference(s), ${deletedOperations} pending operation record(s), and ${deletedPolicy.policyEvents + deletedPolicy.inboundEvents} policy/event record(s) for this user.${shelfNote}` };
+    return { status: 'deleted', summary: `Deleted ${threads.threads.length} conversation(s), ${deletedLists.lists} list(s) with ${deletedLists.items} title(s), ${deletedWatches} watch record(s), ${deletedSubscriptions} radar record(s), ${deletedProfileRecords} profile/escalation record(s), ${deletedViewingRecords} viewing-profile record(s), ${deletedNotificationDeliveries} notification delivery record(s), ${deletedMessageReferences} message reference(s), ${deletedOperations} pending operation record(s), ${deletedPolicy.policyEvents + deletedPolicy.inboundEvents} policy/event record(s), and ${deletedIdentities} linked chat(s) or browser(s) for this user.${shelfNote}` };
   },
 });

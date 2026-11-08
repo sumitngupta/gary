@@ -202,6 +202,19 @@ export async function unlink(key: IdentityKey) {
 }
 
 /**
+ * Privacy deletion. Removes the person, every chat and browser linked to
+ * them, and their unredeemed codes. Returns how many identities were linked.
+ */
+export async function forgetPerson(userId: GaryUser['id']) {
+  const [, identities] = await (await db()).batch([
+    { sql: 'DELETE FROM gary_codes WHERE user_id = ?', args: [userId] },
+    { sql: 'DELETE FROM gary_channel_identities WHERE user_id = ?', args: [userId] },
+    { sql: 'DELETE FROM gary_users WHERE id = ?', args: [userId] },
+  ], 'write');
+  return identities.rowsAffected;
+}
+
+/**
  * Boot step. Drops expired web sign-ins, then creates the owner admin on first boot. While no admin has a
  * linked identity it replaces any unredeemed bootstrap code with a fresh one
  * for the caller to print, so every boot converges on exactly one live code.

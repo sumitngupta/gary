@@ -77,3 +77,24 @@ test('privacy export shows which lists are published and delete takes the shelf 
   assert.deepEqual(requests, ['DELETE /library/collections/900']);
   assert.deepEqual(await listGaryShelfCollectionLinks(carol), []);
 });
+
+test('deleting your data disconnects every chat and browser linked to you and nobody else', async () => {
+  const { enroll, identify, issueCode, resourceIdFor } = await import('../channels/people');
+  const invite = async (displayName: string) => (await issueCode({ kind: 'new-user', displayName, role: 'member' })).code;
+  const dana = await enroll({ channel: 'telegram', externalId: '1001' }, { kind: 'code', text: await invite('Dana') });
+  assert.ok(dana.status === 'linked');
+  await enroll({ channel: 'web', externalId: 'dana-browser' }, { kind: 'code', text: (await issueCode({ kind: 'existing-user', userId: dana.person.id })).code });
+  await enroll({ channel: 'telegram', externalId: '2002' }, { kind: 'code', text: await invite('Eli') });
+
+  const resourceId = resourceIdFor(dana.person.id);
+  const pending = await execute({ action: 'delete', confirmDelete: false }, as(resourceId)) as any;
+  assert.match(pending.summary, /disconnects every chat app and browser linked to you/);
+  const deleted = await execute({ action: 'delete', confirmDelete: true }, as(resourceId)) as any;
+  assert.match(deleted.summary, /, and 2 linked chat\(s\) or browser\(s\) for this user\./);
+  const remaining = await Promise.all([
+    identify({ channel: 'telegram', externalId: '1001' }),
+    identify({ channel: 'web', externalId: 'dana-browser' }),
+    identify({ channel: 'telegram', externalId: '2002' }),
+  ]);
+  assert.deepEqual(remaining.map((person) => person?.displayName), [undefined, undefined, 'Eli']);
+});
