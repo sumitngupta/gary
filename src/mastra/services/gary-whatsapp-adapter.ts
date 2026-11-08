@@ -11,7 +11,7 @@ export function whatsappAvailabilityTemplatePayload(to: string, titles: string[]
     template: {
       name: titles.length > 1 ? templates.mediaBatch : templates.mediaAvailable,
       language: { code: 'en_US' },
-      components: [{ type: 'body', parameters: [{ type: 'text', text: titles.join('\n') }] }],
+      components: [{ type: 'body', parameters: [{ type: 'text', text: titles.map((title) => title.replace(/\s+/g, ' ').trim()).join('; ') }] }],
     },
   };
 }

@@ -39,7 +39,7 @@ test('selects single and batch WhatsApp availability templates deterministically
   assert.equal(whatsappAvailabilityTemplatePayload('15550001111', ['Labyrinth (1986)'], templates).template.name, 'gary_media_available');
   const batch = whatsappAvailabilityTemplatePayload('15550001111', ['Labyrinth (1986)', 'The Karate Kid (1984)'], templates);
   assert.equal(batch.template.name, 'gary_tracked_titles_available');
-  assert.equal(batch.template.components[0]?.parameters[0]?.text, 'Labyrinth (1986)\nThe Karate Kid (1984)');
+  assert.equal(batch.template.components[0]?.parameters[0]?.text, 'Labyrinth (1986); The Karate Kid (1984)');
 });
 
 test('reaction context is target-bound and conservative about approval', () => {
@@ -73,4 +73,10 @@ test('quoted media is retained as bounded context without retaining the media pa
   assert.equal(garyWhatsAppReferenceText({ type: 'image', image: { id: 'private-media-id', caption: 'Which movie is this?' } }), '[WhatsApp image] Which movie is this?');
   assert.equal(garyWhatsAppReferenceText({ type: 'document', document: { id: 'private-id', filename: 'watchlist.pdf' } }), '[WhatsApp document watchlist.pdf]');
   assert.equal(garyWhatsAppReferenceText({ type: 'audio', audio: { id: 'private-audio' } }), '[WhatsApp audio]');
+});
+
+test('availability template text never contains newlines, tabs or long space runs', () => {
+  const templates = { mediaAvailable: 'one', mediaBatch: 'many' };
+  const payload = whatsappAvailabilityTemplatePayload('15550001111', ['Love,\tActually  (2003)', 'Up\n(2009)', 'Heat      (1995)'], templates);
+  assert.equal(payload.template.components[0]?.parameters[0]?.text, 'Love, Actually (2003); Up (2009); Heat (1995)');
 });
