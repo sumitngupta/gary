@@ -73,7 +73,6 @@ const envSchema = z.object({
   GARY_WHATSAPP_PHONE_NUMBER_ID: text,
   GARY_WHATSAPP_VERIFY_TOKEN: text,
   GARY_WHATSAPP_GRAPH_VERSION: z.string().default('v25.0'),
-  GARY_WHATSAPP_GROUPS_ENABLED: flag(false),
   GARY_WHATSAPP_MEDIA_AVAILABLE_TEMPLATE: z.string().default('gary_media_available'),
   GARY_WHATSAPP_MEDIA_BATCH_TEMPLATE: z.string().default('gary_tracked_titles_available'),
   TELEGRAM_BOT_TOKEN: text,
@@ -129,7 +128,6 @@ export type WhatsAppSettings = {
   phoneNumberId: string;
   verifyToken: string;
   graphVersion: string;
-  groupsEnabled: boolean;
   templates: { mediaAvailable: string; mediaBatch: string };
 };
 
@@ -179,7 +177,6 @@ function parseWhatsApp(env: GaryEnv, problems: string[]): WhatsAppSettings | und
     phoneNumberId: env.GARY_WHATSAPP_PHONE_NUMBER_ID!,
     verifyToken: env.GARY_WHATSAPP_VERIFY_TOKEN!,
     graphVersion: env.GARY_WHATSAPP_GRAPH_VERSION,
-    groupsEnabled: env.GARY_WHATSAPP_GROUPS_ENABLED,
     templates: { mediaAvailable: env.GARY_WHATSAPP_MEDIA_AVAILABLE_TEMPLATE, mediaBatch: env.GARY_WHATSAPP_MEDIA_BATCH_TEMPLATE },
   };
 }

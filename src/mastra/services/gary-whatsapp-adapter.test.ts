@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { GaryWhatsAppAdapter, QUOTED_REPLY_BINDING_GUIDANCE, garyWhatsAppQuotedReplyPrompt, garyWhatsAppRawReaction, garyWhatsAppReactionPrompt, garyWhatsAppReferenceText, whatsappAvailabilityTemplatePayload } from './gary-whatsapp-adapter';
 
 class TestAdapter extends GaryWhatsAppAdapter {
-  calls: Array<{ path: string; body: unknown }> = [];
-  protected override async graphApiRequest<T>(path: string, body: unknown): Promise<T> {
-    this.calls.push({ path, body });
-    return { messages: [{ id: 'wamid.group.reply' }] } as T;
-  }
-  sendText(threadId: string, to: string, text: string) {
-    return this.sendSingleTextMessage(threadId, to, text);
+  receive(inbound: Record<string, unknown>) {
+    const processed: Array<{ threadId: string; text: string }> = [];
+    (this as unknown as { chat: unknown }).chat = { processMessage: (_adapter: unknown, threadId: string, message: { text: string }) => { processed.push({ threadId, text: message.text }); } };
+    this.handleInboundMessage(inbound, { wa_id: inbound.from, profile: { name: 'Alice' } }, 'phone-1');
+    return processed;
   }
 }
 
@@ -20,11 +21,17 @@ function adapter() {
   });
 }
 
-test('represents a WhatsApp group as a non-DM thread', async () => {
-  const value = adapter();
-  const thread = await value.fetchThread('whatsapp:phone-1:group_group-123');
-  assert.equal(thread.isDM, false);
-  assert.equal(thread.metadata.groupId, 'group-123');
+test('a WhatsApp group message is dropped while the same sender\'s direct message goes through', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gary-whatsapp-'));
+  const prior = process.env.GARY_DATA_DIR;
+  process.env.GARY_DATA_DIR = dir;
+  t.after(async () => {
+    process.env.GARY_DATA_DIR = prior;
+    await rm(dir, { recursive: true, force: true });
+  });
+  const text = (id: string, extra = {}) => ({ id, from: '15550001111', timestamp: '1', type: 'text', text: { body: 'Is Arrival available?' }, ...extra });
+  assert.deepEqual(adapter().receive(text('wamid.group', { group_id: 'group-123' })), []);
+  assert.deepEqual(adapter().receive(text('wamid.direct')), [{ threadId: 'whatsapp:phone-1:15550001111', text: 'Is Arrival available?' }]);
 });
 
 test('selects single and batch WhatsApp availability templates deterministically', () => {
@@ -33,19 +40,6 @@ test('selects single and batch WhatsApp availability templates deterministically
   const batch = whatsappAvailabilityTemplatePayload('15550001111', ['Labyrinth (1986)', 'The Karate Kid (1984)'], templates);
   assert.equal(batch.template.name, 'gary_tracked_titles_available');
   assert.equal(batch.template.components[0]?.parameters[0]?.text, 'Labyrinth (1986)\nThe Karate Kid (1984)');
-});
-
-test('sends group replies with the group recipient type', async () => {
-  const value = adapter();
-  const result = await value.sendText('whatsapp:phone-1:group_group-123', 'group_group-123', 'Hello group');
-  assert.equal(result.id, 'wamid.group.reply');
-  assert.deepEqual(value.calls[0], {
-    path: '/phone-1/messages',
-    body: {
-      messaging_product: 'whatsapp', recipient_type: 'group', to: 'group-123',
-      type: 'text', text: { preview_url: false, body: 'Hello group' },
-    },
-  });
 });
 
 test('reaction context is target-bound and conservative about approval', () => {

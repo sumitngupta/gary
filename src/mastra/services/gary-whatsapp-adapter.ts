@@ -4,12 +4,6 @@ import { deleteGaryMessageReference, getGaryMessageReference, rememberGaryMessag
 import { attachPendingIntentProposalMessage, invalidatePendingIntentForMessage, recordWhatsAppEvent, resolvePendingIntent } from './gary-operations-store';
 import { assertMutationAllowed, garyConfig, type WhatsAppSettings } from '../config/gary-config';
 
-const GROUP_MARKER = 'group_';
-
-function groupRecipient(value: string) {
-  return value.startsWith(GROUP_MARKER) ? value.slice(GROUP_MARKER.length) : undefined;
-}
-
 /** Template body for availability notices, which may arrive outside WhatsApp's 24-hour reply window. */
 export function whatsappAvailabilityTemplatePayload(to: string, titles: string[], templates: WhatsAppSettings['templates']) {
   return {
@@ -152,6 +146,10 @@ export class GaryWhatsAppAdapter extends WhatsAppAdapter {
   }
 
   protected override handleInboundMessage(inbound: any, contact: any, phoneNumberId: string, options?: any) {
+    if (typeof inbound?.group_id === 'string') {
+      this.logger.info('WhatsApp group message ignored: Gary only answers individual chats', { messageId: inbound.id });
+      return;
+    }
     const decodedThreadId = this.encodeThreadId({ phoneNumberId, userWaId: inbound.from });
     if (inbound?.type === 'edited' || inbound?.type === 'deleted') {
       void this.handleMessageMutation(inbound, decodedThreadId);
@@ -163,26 +161,9 @@ export class GaryWhatsAppAdapter extends WhatsAppAdapter {
     }
     void recordWhatsAppEvent({ eventId: inbound.id, threadId: decodedThreadId, eventType: 'message', timestamp: Number(inbound.timestamp || Math.floor(Date.now() / 1000)), payload: { type: inbound.type } });
     this.rememberMessage(inbound?.id, garyWhatsAppReferenceText(inbound, this.extractTextContent(inbound)), decodedThreadId, inbound.from, 'inbound');
-    const groupId = typeof inbound?.group_id === 'string' ? inbound.group_id : undefined;
-    if (!groupId) {
-      const quotedMessageId = typeof inbound?.context?.id === 'string' ? inbound.context.id : undefined;
-      if (!quotedMessageId || inbound.type === 'reaction') return super.handleInboundMessage(inbound, contact, phoneNumberId, options);
-      void this.handleQuotedInboundMessage(inbound, contact, phoneNumberId, quotedMessageId, options);
-      return;
-    }
-    if (!garyConfig().whatsapp?.groupsEnabled) {
-      this.logger.info('WhatsApp group message ignored while group support is disabled', {
-        groupId,
-        messageId: inbound.id,
-      });
-      return;
-    }
-    if (!this.chat) throw new Error('WhatsApp adapter is not initialized');
-    const text = this.extractTextContent(inbound);
-    if (text === null) return;
-    const threadId = this.encodeThreadId({ phoneNumberId, userWaId: `${GROUP_MARKER}${groupId}` });
-    const message = this.buildMessage(inbound, contact, threadId, text, phoneNumberId);
-    this.chat.processMessage(this, threadId, message, options);
+    const quotedMessageId = typeof inbound?.context?.id === 'string' ? inbound.context.id : undefined;
+    if (!quotedMessageId) return super.handleInboundMessage(inbound, contact, phoneNumberId, options);
+    void this.handleQuotedInboundMessage(inbound, contact, phoneNumberId, quotedMessageId, options);
   }
 
   private async handleRawReaction(inbound: any, contact: any, phoneNumberId: string, threadId: string, options?: any) {
@@ -231,55 +212,9 @@ export class GaryWhatsAppAdapter extends WhatsAppAdapter {
     await this.chat.processMessage(this, threadId, message, options);
   }
 
-  override async fetchThread(threadId: string) {
-    const decoded = this.decodeThreadId(threadId);
-    const groupId = groupRecipient(decoded.userWaId);
-    if (!groupId) return super.fetchThread(threadId);
-    return {
-      id: threadId,
-      channelId: `whatsapp:${decoded.phoneNumberId}`,
-      channelName: `WhatsApp group: ${groupId}`,
-      isDM: false,
-      metadata: { phoneNumberId: decoded.phoneNumberId, groupId },
-    };
-  }
-
   protected override async sendSingleTextMessage(threadId: string, to: string, text: string) {
-    const groupId = groupRecipient(to);
-    if (!groupId) {
-      const result = await super.sendSingleTextMessage(threadId, to, text);
-      this.rememberMessage(result.id, text, threadId, to, 'outbound');
-      await attachPendingIntentProposalMessage(threadId, result.id, text);
-      return result;
-    }
-    const response = await this.graphApiRequest<{ messages?: Array<{ id?: string }> }>(
-      `/${this.phoneNumberId}/messages`,
-      {
-        messaging_product: 'whatsapp',
-        recipient_type: 'group',
-        to: groupId,
-        type: 'text',
-        text: { preview_url: false, body: text },
-      },
-    );
-    const messageId = response.messages?.[0]?.id;
-    if (!messageId) throw new Error('WhatsApp API did not return a group message ID');
-    const result = {
-      id: messageId,
-      threadId,
-      raw: {
-        message: {
-          id: messageId,
-          from: this.phoneNumberId,
-          group_id: groupId,
-          timestamp: String(Math.floor(Date.now() / 1_000)),
-          type: 'text',
-          text: { body: text },
-        } as any,
-        phoneNumberId: this.phoneNumberId,
-      },
-    };
-    this.rememberMessage(result.id, text, threadId, groupId, 'outbound');
+    const result = await super.sendSingleTextMessage(threadId, to, text);
+    this.rememberMessage(result.id, text, threadId, to, 'outbound');
     await attachPendingIntentProposalMessage(threadId, result.id, text);
     return result;
   }
