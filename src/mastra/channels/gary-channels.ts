@@ -114,14 +114,19 @@ function log(event: string, detail: Record<string, unknown>) {
 }
 
 /**
- * The single handler for direct messages, mentions and subscribed threads on
- * every platform. An unidentified sender only ever gets the enrollment prompt
- * or a welcome; the agent runs for identified people, one turn at a time per
- * person across all of their channels.
+ * The single handler for direct messages on every platform. An unidentified
+ * sender only ever gets the enrollment prompt or a welcome; the agent runs for
+ * identified people, one turn at a time per person across all of their
+ * channels. Group threads are refused: Mastra fixes a thread's memory owner
+ * when it creates the thread, so every later member would act as the first.
  */
 export function garyInboundHandler(conversation: GaryConversation): ChannelHandler {
   const queue = new KeyedTaskQueue();
   return async (thread, message, defaultHandler) => {
+    if (!thread.isDM) {
+      log('denied', { platform: thread.adapter.name, messageId: message.id, reason: 'group_thread' });
+      return;
+    }
     const key = senderKey(thread.adapter.name, message.author.userId);
     if (!key) {
       log('denied', { platform: thread.adapter.name, messageId: message.id, reason: 'invalid_sender' });
@@ -169,7 +174,7 @@ export function garyChannelConfig(conversation: GaryConversation): ChannelConfig
         formatError: () => 'I hit a temporary problem while handling that. Please try again in a moment.',
       }]] : [];
     })),
-    handlers: { onDirectMessage: handler, onMention: handler, onSubscribedMessage: handler },
+    handlers: { onDirectMessage: handler, onMention: false, onSubscribedMessage: false },
     // Called only when Mastra creates a thread, which happens inside an admitted turn.
     resolveResourceId: async ({ platform, message }) => {
       const key = senderKey(platform, message.author.userId);

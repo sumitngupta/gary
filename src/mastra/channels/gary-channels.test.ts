@@ -31,9 +31,9 @@ function recorder() {
   return { turns, welcomes, conversation };
 }
 
-function chat(platform: string, userId: string, text: string, id = `${platform}-${userId}-${text}`) {
+function chat(platform: string, userId: string, text: string, id = `${platform}-${userId}-${text}`, threadId = `${platform}:${userId}`) {
   const posts: string[] = [];
-  const thread = { id: `${platform}:${userId}`, adapter: { name: platform }, post: async (value: string) => { posts.push(value); } };
+  const thread = { id: threadId, isDM: threadId === `${platform}:${userId}`, adapter: { name: platform }, post: async (value: string) => { posts.push(value); } };
   const message = { id, text, author: { userId }, attachments: [] };
   return { posts, thread: thread as never, message: message as never };
 }
@@ -132,4 +132,18 @@ test('outside read-only mode a web-origin notice falls back to the person\'s Tel
   const result = await deliverToUser(alice.person.id, { kind: 'media.radar', text: 'Fresh picks' }, { prefer: 'web' });
   assert.deepEqual([result.sent, result.sent && result.channel], [true, 'telegram']);
   assert.deepEqual(calls.map((call) => [call.method, call.body.chat_id, call.body.text]), [['sendMessage', '1001', 'Fresh picks']]);
+});
+
+test('a group message from an enrolled member never reaches the agent, and Gary does not listen for group events', async (t) => {
+  await isolated(t);
+  await enroll({ channel: 'telegram', externalId: '1001' }, { kind: 'code', text: await invite('Alice') });
+  const { turns, conversation } = recorder();
+  const handler = garyInboundHandler(conversation);
+  const inGroup = chat('telegram', '1001', 'Is Arrival available?', 'group-1', 'telegram:-100200300');
+  await handler(inGroup.thread, inGroup.message, neverRunAgent);
+  const direct = chat('telegram', '1001', 'Is Arrival available?', 'direct-1');
+  await handler(direct.thread, direct.message, neverRunAgent);
+  assert.deepEqual([inGroup.posts, turns.map((turn) => turn.message.id)], [[], ['direct-1']]);
+  const { handlers } = garyChannelConfig(conversation);
+  assert.deepEqual([typeof handlers?.onDirectMessage, handlers?.onMention, handlers?.onSubscribedMessage], ['function', false, false]);
 });
