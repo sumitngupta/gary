@@ -10,7 +10,8 @@
   },
   "scripts": {
     "dev": "mastra dev",
-    "build": "mastra build",
+    "build": "mastra build && npm run build:doctor",
+    "build:doctor": "esbuild scripts/doctor.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=.mastra/output/doctor.mjs",
     "start": "node .mastra/output/index.mjs",
     "doctor": "tsx scripts/doctor.ts",
     "typecheck": "tsc --noEmit",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@types/node": "26.1.1",
+    "esbuild": "0.28.1",
     "hono": "4.12.27",
     "mastra": "1.19.0",
     "typescript": "6.0.3"

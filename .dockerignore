@@ -1,0 +1,8 @@
+.git
+.mastra
+node_modules
+data
+.env
+*.db
+*.db-*
+.audit
