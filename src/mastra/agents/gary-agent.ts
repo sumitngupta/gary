@@ -1,5 +1,4 @@
 import { Agent } from '@mastra/core/agent';
-import type { ChannelHandler } from '@mastra/core/channels';
 import { Memory } from '@mastra/memory';
 import { ToolSearchProcessor, UnicodeNormalizer } from '@mastra/core/processors';
 import { garyConfig } from '../config/gary-config';
@@ -32,14 +31,9 @@ import { manageGaryViewingProfileTool } from '../tools/manage-gary-viewing-profi
 import { executeMediaQualityUpgradeTool, previewMediaQualityUpgradeTool } from '../tools/media-quality-upgrade-tools';
 import { executeCollectionPackRepairTool, reviewCollectionPackRepairTool } from '../tools/collection-pack-repair-tools';
 import { executePlexCollectionChangeTool, inspectPlexCollectionsTool, previewPlexCollectionChangeTool } from '../tools/plex-collection-tools';
-import {
-  claimGaryInboundEvent,
-  claimGaryWhatsAppEnrollment,
-  enforceGaryAccessPolicy,
-  isGaryWhatsAppActorAuthorized,
-} from '../services/gary-access-policy';
+import { enforceGaryAccessPolicy } from '../services/gary-access-policy';
+import { garyChannelConfig, toolCaller, type GaryConversation } from '../channels/gary-channels';
 import { transcribeWhatsAppVoice } from '../services/whatsapp-voice-transcription';
-import { createGaryWhatsAppAdapter, garyWhatsAppResourceId } from '../services/gary-whatsapp-adapter';
 import { GARY_DELETE_CONFIRMATION_PHRASE, wasGaryDeletionConsumedSince } from '../services/gary-confirmation-store';
 import { assertReadOnlyToolAllowed } from '../services/read-only-mode';
 import { garyMediaRepairSkill } from '../skills/gary-media-repair';
@@ -50,6 +44,7 @@ import { createMediaRequestBatchTool } from '../tools/create-media-request-batch
 import { planMediaRequestBatchTool } from '../tools/plan-media-request-batch-tool';
 import { manageGaryHouseholdContextTool } from '../tools/manage-gary-household-context-tool';
 import { manageGaryPendingIntentTool } from '../tools/manage-gary-pending-intent-tool';
+import { manageGaryAccessTool } from '../tools/manage-gary-access-tool';
 import { appendOperationEvent, pendingIntentExecutionInstruction, resolvePendingIntent, resolvePendingIntentForResource } from '../services/gary-operations-store';
 import { getGaryRecommendationContext } from '../services/gary-recommendation-context';
 import {
@@ -64,35 +59,13 @@ import { reconcileGaryViewingProfile } from '../services/tautulli-viewing-profil
 import { availabilityIntentInstruction } from '../services/gary-availability-intent';
 import { qualityIntentInstruction } from '../services/gary-quality-intent';
 import { isGaryAcknowledgementOnly } from '../services/gary-acknowledgement';
-import { KeyedTaskQueue } from '../services/keyed-task-queue';
 import { interpretRoutinePendingIntent } from '../services/gary-pending-intent-interpreter';
 import { adminName, serverName } from '../config/branding';
 
-type GaryToolContext = {
-  agent?: { resourceId?: string; threadId?: string };
-  requestContext?: { get: (key: string) => unknown };
-};
-
-function contextString(context: GaryToolContext, key: string) {
-  const value = context.requestContext?.get(key);
-  return typeof value === 'string' ? value : undefined;
-}
-
-function normalizeWhatsAppUserId(value: string | undefined) {
-  if (!value) return undefined;
-  const digits = value.replace(/\D/g, '');
-  return digits ? `+${digits}` : undefined;
-}
-
-function whatsappChannelContext(context: GaryToolContext) {
-  const channel = context.requestContext?.get('channel');
-  if (!channel || typeof channel !== 'object') return undefined;
-  const value = channel as Record<string, unknown>;
-  return {
-    platform: typeof value.platform === 'string' ? value.platform : undefined,
-    actorId: normalizeWhatsAppUserId(typeof value.userId === 'string' ? value.userId : undefined),
-    eventId: typeof value.messageId === 'string' ? value.messageId : undefined,
-  };
+function correlationIdFor(context: unknown, toolName: string) {
+  const { agent, requestContext } = (context ?? {}) as { agent?: { threadId?: string }; requestContext?: { get: (key: string) => unknown } };
+  const channel = requestContext?.get('channel') as { messageId?: string } | undefined;
+  return channel?.messageId || `${agent?.threadId || 'gary'}:${toolName}`;
 }
 
 async function reconcileViewingAfterOnboarding(resourceId: string, preferredName: string) {
@@ -106,239 +79,154 @@ async function reconcileViewingAfterOnboarding(resourceId: string, preferredName
   }
 }
 
-function createConfiguredWhatsAppAdapter() {
-  const config = garyConfig();
-  const { accessToken, appSecret, phoneNumberId, verifyToken, graphVersion } = config.whatsapp;
-  if (config.readOnly || !accessToken || !appSecret || !phoneNumberId || !verifyToken) return undefined;
-  return createGaryWhatsAppAdapter({ accessToken, appSecret, phoneNumberId, verifyToken, apiVersion: graphVersion, userName: 'gary' });
+const garyPerformanceProcessor = new GaryPerformanceProcessor();
+
+/** An invited member already told the admin their name, so Gary does not ask for it again. */
+async function seedProfileFromInvite(resourceId: string, displayName: string) {
+  await ensureGaryUserProfile(resourceId, 'profile-started');
+  const profile = await updateGaryUserProfile(resourceId, { preferredName: displayName, onboardingState: 'profile-started' });
+  await reconcileViewingAfterOnboarding(resourceId, displayName);
+  return profile;
 }
 
-export const garyWhatsAppAdapter = createConfiguredWhatsAppAdapter();
-
-const garyPerformanceProcessor = new GaryPerformanceProcessor();
-const garyWhatsAppTurnQueue = new KeyedTaskQueue();
-
-const processGaryWhatsAppTurn: ChannelHandler = async (thread, message, defaultHandler) => {
-  const startedAt = Date.now();
-  const receivedAt = new Date(startedAt);
-  const actorId = normalizeWhatsAppUserId(message.author.userId);
-  const logBase = {
-    event: 'gary.whatsapp.message',
-    messageId: message.id,
-    threadId: thread.id,
-    actorId,
-  };
-  console.info(JSON.stringify({ ...logBase, phase: 'handler-started' }));
-  const whatsappEnabled = garyConfig().whatsapp.enabled;
-  if (!whatsappEnabled || !actorId) {
-    console.warn(JSON.stringify({
-      event: 'gary.whatsapp.denied',
-      messageId: message.id,
-      actorId,
-      reason: whatsappEnabled ? 'invalid-actor' : 'disabled',
-    }));
-    return;
-  }
-
-  if (!await isGaryWhatsAppActorAuthorized(actorId)) {
-    const enrollment = await claimGaryWhatsAppEnrollment(actorId, message.text);
-    if (!enrollment.accepted) {
-      console.warn(JSON.stringify({ ...logBase, event: 'gary.whatsapp.denied', reason: enrollment.reasonCode }));
-      await thread.post(`I could not verify this WhatsApp number. Please use the personal Gary link in your ${serverName()} welcome email, or ask ${adminName()} for a new invitation.`);
+const garyConversation: GaryConversation = {
+  async welcome({ thread, person, newUser, resourceId }) {
+    if (!newUser) {
+      await thread.post(`This chat is now connected to your Gary account, ${person.displayName}. Ask me anything.`);
       return;
     }
-    const firstClaim = await claimGaryInboundEvent('whatsapp', message.id, actorId);
-    if (!firstClaim.accepted) return;
-    const resourceId = garyWhatsAppResourceId(message.author.userId);
-    await appendOperationEvent({ correlationId: message.id, resourceId, threadId: thread.id, phase: 'inbound-accepted', detail: { channel: 'whatsapp' } });
-    await ensureGaryUserProfile(resourceId, 'profile-started');
-    await updateGaryUserProfile(resourceId, {
-      preferredName: enrollment.preferredName,
-      onboardingState: 'profile-started',
-    });
-    if (enrollment.preferredName) await reconcileViewingAfterOnboarding(resourceId, enrollment.preferredName);
-    console.info(JSON.stringify({ ...logBase, phase: 'enrollment-completed' }));
-    await thread.post(`Welcome, ${enrollment.preferredName}. Your WhatsApp number is now securely connected to Gary. Tell me a few movies, shows, or genres you love—or just ask for something.`);
-    return;
-  }
+    await seedProfileFromInvite(resourceId, person.displayName);
+    await thread.post(`Welcome, ${person.displayName}. You're now connected to Gary. Tell me a few movies, shows, or genres you love, or just ask for something.`);
+  },
+  async converse(turn) {
+    const { thread, message, person, channel, resourceId, runAgent } = turn;
+    const startedAt = Date.now();
+    const receivedAt = new Date(startedAt);
+    const logBase = { event: 'gary.turn', messageId: message.id, threadId: thread.id, channel, userId: person.id };
+    console.info(JSON.stringify({ ...logBase, phase: 'started' }));
+    let stopTyping = () => {};
+    try {
+      await thread.startTyping();
+      const heartbeat = setInterval(() => {
+        void thread.startTyping().catch((error) => console.warn(JSON.stringify({ ...logBase, phase: 'typing-heartbeat-failed', error: error instanceof Error ? error.message : String(error) })));
+      }, 20_000);
+      heartbeat.unref?.();
+      stopTyping = () => clearInterval(heartbeat);
+    } catch (error) {
+      console.warn(JSON.stringify({ ...logBase, phase: 'typing-start-failed', error: error instanceof Error ? error.message : String(error) }));
+    }
 
-  const claim = await claimGaryInboundEvent('whatsapp', message.id, actorId);
-  if (!claim.accepted) {
-    if (claim.reasonCode === 'hourly_inbound_quota_reached') {
-      await thread.post('I’m handling an unusual burst of messages from this chat. Give me a few minutes, then try again.');
-    }
-    return;
-  }
-  let stopTyping = () => {};
-  try {
-    await thread.startTyping();
-    const heartbeat = setInterval(() => {
-      void thread.startTyping().catch((error) => console.warn(JSON.stringify({
-        ...logBase,
-        phase: 'typing-heartbeat-failed',
-        elapsedMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      })));
-    }, 20_000);
-    heartbeat.unref?.();
-    stopTyping = () => clearInterval(heartbeat);
-    console.info(JSON.stringify({
-      ...logBase,
-      phase: 'typing-started',
-      elapsedMs: Date.now() - startedAt,
-    }));
-  } catch (error) {
-    console.warn(JSON.stringify({
-      ...logBase,
-      phase: 'typing-start-failed',
-      elapsedMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
-    }));
-  }
-
-  try {
-    const voice = message.attachments.find((attachment) => attachment.type === 'audio' && attachment.fetchData);
-    if (voice?.fetchData) {
-      try {
-        const transcript = await transcribeWhatsAppVoice(await voice.fetchData(), voice.mimeType);
-        message.text = `Voice message transcript:\n${transcript}`;
-      } catch (error) {
-        console.error(JSON.stringify({
-          event: 'gary.whatsapp.voice-transcription-failed',
-          messageId: message.id,
-          actorId,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-        await thread.post('I couldn’t transcribe that voice message. Please try again or send it as text.');
-        return;
+    try {
+      const voice = message.attachments.find((attachment) => attachment.type === 'audio' && attachment.fetchData);
+      if (voice?.fetchData) {
+        try {
+          const transcript = await transcribeWhatsAppVoice(await voice.fetchData(), voice.mimeType);
+          message.text = `Voice message transcript:\n${transcript}`;
+        } catch (error) {
+          console.error(JSON.stringify({
+            event: 'gary.voice-transcription-failed',
+            messageId: message.id,
+            userId: person.id,
+            error: error instanceof Error ? error.message : String(error),
+          }));
+          await thread.post('I couldn’t transcribe that voice message. Please try again or send it as text.');
+          return;
+        }
       }
-    }
-    const resourceId = garyWhatsAppResourceId(message.author.userId);
-    await appendOperationEvent({ correlationId: message.id, resourceId, threadId: thread.id, phase: 'inbound-accepted', detail: { channel: 'whatsapp' } });
-    const currentProfile = await getGaryUserProfile(resourceId);
-    if (!claim.firstForActor && currentProfile?.onboardingState === 'introduced' && !currentProfile.preferredName) {
-      const preferredName = extractGaryOnboardingName(message.text);
-      if (preferredName) {
-        await updateGaryUserProfile(resourceId, { preferredName, onboardingState: 'profile-started' });
-        await reconcileViewingAfterOnboarding(resourceId, preferredName);
-        await thread.post(`Nice to meet you, ${preferredName}. Give me the rough shape of your taste: a few movies, shows, or genres you love, plus anything you would rather avoid. Short and messy is completely fine.`);
-        return;
+      await appendOperationEvent({ correlationId: message.id, resourceId, threadId: thread.id, phase: 'inbound-accepted', detail: { channel } });
+      let currentProfile = await getGaryUserProfile(resourceId);
+      if (!currentProfile?.preferredName && person.role === 'member') {
+        currentProfile = await seedProfileFromInvite(resourceId, person.displayName);
       }
-    }
-    if (claim.firstForActor) {
-      await ensureGaryUserProfile(resourceId, 'introduced');
-      if (isGaryOnboardingGreeting(message.text)) {
-        await thread.post(
-          `Hey! I’m Gary—your mildly overprepared movie-and-TV guy. I can recommend things, request movies and shows through ${serverName()}, check what’s ready to watch, and let you know when something lands. Your preferences stay separate from everyone else’s. What should I call you?`,
-        );
-        return;
+      const firstTurn = turn.firstTurn && !currentProfile?.preferredName;
+      if (!firstTurn && currentProfile?.onboardingState === 'introduced' && !currentProfile.preferredName) {
+        const preferredName = extractGaryOnboardingName(message.text);
+        if (preferredName) {
+          await updateGaryUserProfile(resourceId, { preferredName, onboardingState: 'profile-started' });
+          await reconcileViewingAfterOnboarding(resourceId, preferredName);
+          await thread.post(`Nice to meet you, ${preferredName}. Give me the rough shape of your taste: a few movies, shows, or genres you love, plus anything you would rather avoid. Short and messy is completely fine.`);
+          return;
+        }
       }
-    }
-    const preferenceReceipt = await persistExplicitGaryPreferences(resourceId, message.text, message.id);
-    if (preferenceReceipt) {
-      message.text = `${message.text}\n\nVerified preference persistence receipt: ${JSON.stringify(preferenceReceipt)}. The profile write was read back successfully.`;
-    }
-    const availabilityInstruction = availabilityIntentInstruction(message.text);
-    if (availabilityInstruction) message.text = `${message.text}\n\n${availabilityInstruction}`;
-    const qualityInstruction = qualityIntentInstruction(message.text);
-    if (qualityInstruction) message.text = `${message.text}\n\n${qualityInstruction}`;
-    let pendingResolution = await resolvePendingIntent(thread.id, message.text);
-    if (pendingResolution.status === 'none') {
-      pendingResolution = await resolvePendingIntentForResource(resourceId, message.text);
-    }
-    if (pendingResolution.status === 'ambiguous') {
-      const clarification = pendingResolution.clarification;
-      try {
-        const semantic = await interpretRoutinePendingIntent(message.text, pendingResolution.intent);
-        if (semantic.decision === 'select' && semantic.optionKey) {
-          pendingResolution = await resolvePendingIntent(pendingResolution.intent.threadId, semantic.optionKey);
-        } else if (semantic.decision === 'revise') {
-          await resolvePendingIntent(pendingResolution.intent.threadId, 'no');
-          message.text += '\n\nThe previous title proposal was declined because the user corrected it. Resolve the corrected title afresh; do not reuse the rejected candidate.';
-          pendingResolution = { status: 'not-short', intent: pendingResolution.intent };
-        } else if (semantic.decision === 'decline') {
-          pendingResolution = await resolvePendingIntent(pendingResolution.intent.threadId, 'no');
-        } else {
+      if (firstTurn) {
+        await ensureGaryUserProfile(resourceId, 'introduced');
+        if (isGaryOnboardingGreeting(message.text)) {
+          await thread.post(
+            `Hey! I’m Gary—your mildly overprepared movie-and-TV guy. I can recommend things, request movies and shows through ${serverName()}, check what’s ready to watch, and let you know when something lands. Your preferences stay separate from everyone else’s. What should I call you?`,
+          );
+          return;
+        }
+      }
+      const preferenceReceipt = await persistExplicitGaryPreferences(resourceId, message.text, message.id);
+      if (preferenceReceipt) {
+        message.text = `${message.text}\n\nVerified preference persistence receipt: ${JSON.stringify(preferenceReceipt)}. The profile write was read back successfully.`;
+      }
+      const availabilityInstruction = availabilityIntentInstruction(message.text);
+      if (availabilityInstruction) message.text = `${message.text}\n\n${availabilityInstruction}`;
+      const qualityInstruction = qualityIntentInstruction(message.text);
+      if (qualityInstruction) message.text = `${message.text}\n\n${qualityInstruction}`;
+      let pendingResolution = await resolvePendingIntent(thread.id, message.text);
+      if (pendingResolution.status === 'none') {
+        pendingResolution = await resolvePendingIntentForResource(resourceId, message.text);
+      }
+      if (pendingResolution.status === 'ambiguous') {
+        const clarification = pendingResolution.clarification;
+        try {
+          const semantic = await interpretRoutinePendingIntent(message.text, pendingResolution.intent);
+          if (semantic.decision === 'select' && semantic.optionKey) {
+            pendingResolution = await resolvePendingIntent(pendingResolution.intent.threadId, semantic.optionKey);
+          } else if (semantic.decision === 'revise') {
+            await resolvePendingIntent(pendingResolution.intent.threadId, 'no');
+            message.text += '\n\nThe previous title proposal was declined because the user corrected it. Resolve the corrected title afresh; do not reuse the rejected candidate.';
+            pendingResolution = { status: 'not-short', intent: pendingResolution.intent };
+          } else if (semantic.decision === 'decline') {
+            pendingResolution = await resolvePendingIntent(pendingResolution.intent.threadId, 'no');
+          } else {
+            await thread.post(clarification);
+            return;
+          }
+        } catch (error) {
+          console.warn(JSON.stringify({ ...logBase, phase: 'pending-semantic-fallback-failed', error: error instanceof Error ? error.message : String(error) }));
           await thread.post(clarification);
           return;
         }
-      } catch (error) {
-        console.warn(JSON.stringify({ ...logBase, phase: 'pending-semantic-fallback-failed', error: error instanceof Error ? error.message : String(error) }));
-        await thread.post(clarification);
+      }
+      if (pendingResolution.status !== 'none' && pendingResolution.status !== 'not-short') {
+        message.text = `${message.text}\n\nDeterministic pending-intent binding: ${JSON.stringify(pendingResolution)}. Continue only with the bound proposal; do not reinterpret the short answer.`;
+      }
+      if (
+        (pendingResolution.status === 'none' || pendingResolution.status === 'not-short')
+        && isGaryAcknowledgementOnly(message.text)
+      ) {
+        await thread.post('You’re welcome!');
+        await appendOperationEvent({ correlationId: message.id, resourceId, threadId: thread.id, phase: 'assistant-response-delivered', detail: { route: 'acknowledgement' } });
         return;
       }
-    }
-    if (pendingResolution.status !== 'none' && pendingResolution.status !== 'not-short') {
-      message.text = `${message.text}\n\nDeterministic pending-intent binding: ${JSON.stringify(pendingResolution)}. Continue only with the bound proposal; do not reinterpret the short answer.`;
-    }
-    if (
-      (pendingResolution.status === 'none' || pendingResolution.status === 'not-short')
-      && isGaryAcknowledgementOnly(message.text)
-    ) {
-      await thread.post('You’re welcome!');
-      await appendOperationEvent({ correlationId: message.id, resourceId, threadId: thread.id, phase: 'assistant-response-delivered', detail: { route: 'acknowledgement' } });
-      return;
-    }
-    const batchExecutionInstruction = pendingIntentExecutionInstruction(pendingResolution);
-    if (batchExecutionInstruction) message.text = `${message.text}\n\n${batchExecutionInstruction}`;
-    if (/\b(?:recommend|suggest|what should (?:i|we) watch|anything good|pick something)\b/i.test(message.text)) {
-      const recommendationContext = await getGaryRecommendationContext(resourceId);
-      message.text = `${message.text}\n\nCanonical recommendation context: ${JSON.stringify(recommendationContext)}. Personal taste belongs only to this resource; household boundaries are safety defaults.`;
-    }
-    await defaultHandler(thread, message);
-    await appendOperationEvent({ correlationId: message.id, resourceId, threadId: thread.id, phase: 'assistant-response-delivered' });
-    if (claim.firstForActor) {
-      await thread.post('By the way, what should I call you?');
-    }
-    if (
-      message.text.trim() === GARY_DELETE_CONFIRMATION_PHRASE
-      && await wasGaryDeletionConsumedSince(garyWhatsAppResourceId(message.author.userId), receivedAt)
-    ) {
-      await garyMemory.deleteThread(thread.id);
-    }
-    console.info(JSON.stringify({
-      ...logBase,
-      phase: 'completed',
-      elapsedMs: Date.now() - startedAt,
-    }));
-  } catch (error) {
-    console.error(JSON.stringify({
-      ...logBase,
-      phase: 'failed',
-      elapsedMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
-    }));
-    throw error;
-  } finally {
-    stopTyping();
-  }
-};
-
-const garyWhatsAppHandler: ChannelHandler = async (thread, message, defaultHandler) => {
-  const actorId = normalizeWhatsAppUserId(message.author.userId);
-  const queueKey = actorId || thread.id;
-  if (garyWhatsAppTurnQueue.hasPending(queueKey)) {
-    console.info(JSON.stringify({
-      event: 'gary.whatsapp.message',
-      messageId: message.id,
-      threadId: thread.id,
-      actorId,
-      phase: 'queued',
-    }));
-  }
-  return garyWhatsAppTurnQueue.run(queueKey, async () => {
-    try {
-      return await processGaryWhatsAppTurn(thread, message, defaultHandler);
+      const batchExecutionInstruction = pendingIntentExecutionInstruction(pendingResolution);
+      if (batchExecutionInstruction) message.text = `${message.text}\n\n${batchExecutionInstruction}`;
+      if (/\b(?:recommend|suggest|what should (?:i|we) watch|anything good|pick something)\b/i.test(message.text)) {
+        const recommendationContext = await getGaryRecommendationContext(resourceId);
+        message.text = `${message.text}\n\nCanonical recommendation context: ${JSON.stringify(recommendationContext)}. Personal taste belongs only to this resource; household boundaries are safety defaults.`;
+      }
+      await runAgent();
+      await appendOperationEvent({ correlationId: message.id, resourceId, threadId: thread.id, phase: 'assistant-response-delivered' });
+      if (firstTurn) {
+        await thread.post('By the way, what should I call you?');
+      }
+      if (
+        message.text.trim() === GARY_DELETE_CONFIRMATION_PHRASE
+        && await wasGaryDeletionConsumedSince(resourceId, receivedAt)
+      ) {
+        await garyMemory.deleteThread(thread.id);
+      }
+      console.info(JSON.stringify({ ...logBase, phase: 'completed', elapsedMs: Date.now() - startedAt }));
+    } catch (error) {
+      console.error(JSON.stringify({ ...logBase, phase: 'failed', elapsedMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) }));
+      throw error;
     } finally {
-      console.info(JSON.stringify({
-        event: 'gary.whatsapp.message',
-        messageId: message.id,
-        threadId: thread.id,
-        actorId,
-        phase: 'handler-returned',
-      }));
+      stopTyping();
     }
-  });
+  },
 };
 
 const GARY_MAX_STEPS = 24;
@@ -361,6 +249,7 @@ const garyRareTools = {
   manageGaryPrivacy: manageGaryPrivacyTool,
   manageGaryHouseholdContext: manageGaryHouseholdContextTool,
   manageGaryViewingProfile: manageGaryViewingProfileTool,
+  manageGaryAccess: manageGaryAccessTool,
 };
 
 export const garyMemory = new Memory({
@@ -390,59 +279,26 @@ export const garyAgent = new Agent({
     new EnsureFinalResponseProcessor(GARY_MAX_STEPS),
   ],
   outputProcessors: [responseHygieneProcessor, garyPerformanceProcessor],
-  ...(garyWhatsAppAdapter
-    ? {
-        channels: {
-          chatOptions: {
-            concurrency: 'queue',
-            dedupeTtlMs: 10 * 60 * 1000,
-          },
-          inlineMedia: ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'],
-          adapters: {
-            whatsapp: {
-              adapter: garyWhatsAppAdapter,
-              streaming: false,
-              toolDisplay: 'hidden' as const,
-              formatError: () => 'I hit a temporary problem while handling that. Please try again in a moment.',
-            },
-          },
-          handlers: {
-            onDirectMessage: garyWhatsAppHandler,
-            onMention: garyWhatsAppHandler,
-            onSubscribedMessage: garyWhatsAppHandler,
-          },
-        },
-      }
-    : {}),
+  channels: garyChannelConfig(garyConversation),
   hooks: {
     beforeToolCall: async ({ toolName, input, context }) => {
       assertReadOnlyToolAllowed(toolName);
-      const toolContext = context as GaryToolContext;
-      const whatsapp = whatsappChannelContext(toolContext);
-      const decision = await enforceGaryAccessPolicy({
-        toolName,
-        input,
-        resourceId: toolContext.agent?.resourceId,
-        threadId: toolContext.agent?.threadId,
-        channel: whatsapp?.platform || contextString(toolContext, 'channel'),
-        actorId: whatsapp?.actorId || contextString(toolContext, 'actorId'),
-        eventId: whatsapp?.eventId || contextString(toolContext, 'eventId') || contextString(toolContext, 'whatsappEventId'),
-      });
+      const decision = await enforceGaryAccessPolicy({ caller: await toolCaller(context), toolName, input });
       if (!decision.allowed) {
         throw new Error(`Gary access policy blocked ${toolName}: ${decision.reason}`);
       }
+      const agent = (context as { agent?: { resourceId?: string; threadId?: string } } | undefined)?.agent;
       await appendOperationEvent({
-        correlationId: whatsapp?.eventId || contextString(toolContext, 'eventId') || `${toolContext.agent?.threadId || 'gary'}:${toolName}`,
-        resourceId: toolContext.agent?.resourceId, threadId: toolContext.agent?.threadId,
+        correlationId: correlationIdFor(context, toolName),
+        resourceId: agent?.resourceId, threadId: agent?.threadId,
         phase: 'tool-started', detail: { toolName },
       });
     },
     afterToolCall: async ({ toolName, error, context }) => {
-      const toolContext = context as GaryToolContext;
-      const whatsapp = whatsappChannelContext(toolContext);
+      const agent = (context as { agent?: { resourceId?: string; threadId?: string } } | undefined)?.agent;
       await appendOperationEvent({
-        correlationId: whatsapp?.eventId || contextString(toolContext, 'eventId') || `${toolContext.agent?.threadId || 'gary'}:${toolName}`,
-        resourceId: toolContext.agent?.resourceId, threadId: toolContext.agent?.threadId,
+        correlationId: correlationIdFor(context, toolName),
+        resourceId: agent?.resourceId, threadId: agent?.threadId,
         phase: error ? 'tool-failed' : 'tool-finished',
         detail: error
           ? { toolName, error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500) }
@@ -475,7 +331,7 @@ export const garyAgent = new Agent({
 Your first responsibility is safe content-request intake for ${adminName()} and approved friends.
 
 Current capabilities:
-- WhatsApp conversations are individual chats only in this deployment. You cannot join, create, or participate in group chats, or add another person to this conversation. Never tell a user to add someone to a group with you or imply that you can respond once they join. A separate personal invitation requires ${adminName()}'s authorization; do not enroll or share another person's data yourself.
+- Conversations are individual chats (web chat, Telegram, or WhatsApp). You cannot join, create, or participate in group chats, or add another person to this conversation. Never tell a user to add someone to a group with you or imply that you can respond once they join. Only an admin can invite a new person, with manageGaryAccess action invite; never share another person's data. Any user can ask for a one-time link code (manageGaryAccess action link-code) to connect another chat app or browser to their own account, and their memory follows them there.
 - Preserve the user's full selected set across research, planning, execution, and the final answer. For "both versions", account for both exact titles/years, including titles already available, even when a batch receipt covers only the remaining titles. Related sequels do not replace a selected remake. For "I only see season 1", check the named version's season and episode coverage instead of silently switching versions.
 - If an exact-title lookup fails because catalog dates differ, research the catalog identity and explain the discrepancy. Verify director/cast and a stable external identity before proposing the catalog's canonical year. Never loosen exact year matching or invent a request receipt.
 - Normalize requests for movies or TV shows.

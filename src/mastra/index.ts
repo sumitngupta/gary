@@ -16,6 +16,8 @@ import {
   sonarrMediaEventRoute,
 } from './routes/media-availability-watch';
 import { whatsappGaryDeliveryRoute, whatsappGaryVerificationRoute } from './routes/whatsapp-verification';
+import { ensureOwner } from './channels/people';
+import { webRoutes } from './channels/web-session';
 import { garyLinkedVisualExtractionWorkflow } from './workflows/gary-linked-visual-extraction-workflow';
 import { garyListShelfSyncWorkflow } from './workflows/gary-list-shelf-sync-workflow';
 import { garyMediaQualityWorkflow } from './workflows/gary-media-quality-workflow';
@@ -25,6 +27,10 @@ import { mediaAvailabilityWatchWorkflow } from './workflows/media-availability-w
 
 const config = bootConfig;
 mkdirSync(config.dataDir, { recursive: true });
+
+void ensureOwner().then(({ bootstrapCode }) => {
+  if (bootstrapCode) console.info(`Gary admin setup: send ${bootstrapCode} to Gary from web chat, Telegram or WhatsApp to become the admin. It works once and a new one prints on each restart until used.`);
+}, (error) => console.error(`Gary could not prepare the admin account: ${error instanceof Error ? error.message : String(error)}`));
 
 function isMediaRadarSchedule(agentId: string, metadata: unknown) {
   return agentId === 'gary' && (metadata as { kind?: string } | undefined)?.kind === 'gary-media-radar';
@@ -96,6 +102,7 @@ export const mastra = new Mastra({
     port: config.port,
     apiRoutes: [
       healthzRoute,
+      ...webRoutes,
       whatsappGaryVerificationRoute,
       whatsappGaryDeliveryRoute,
       garyEscalationsRoute,

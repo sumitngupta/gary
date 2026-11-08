@@ -8,9 +8,17 @@ import { mediaAvailabilityWatchInputSchema, type MediaAvailabilityWatchOutput } 
 import { createMediaAvailabilityWatch, listDueMediaAvailabilityWatches, listMediaAvailabilityWatches, updateMediaAvailabilityWatch } from '../services/media-availability-watch-store';
 import { resetGaryOperationsStoreForTests } from '../services/gary-operations-store';
 import { checkMediaAvailabilityWatch } from '../services/media-availability-observer';
+import { enroll, issueCode, resetPeopleStoreForTests, resourceIdFor } from '../channels/people';
 
 const title = { title: 'The Karate Kid', year: 2010, tmdbId: 38575, mediaType: 'movie' as const, requester: 'Test requester' };
-const identity = { resourceId: 'whatsapp:15555550101', threadId: 'notification-regression' };
+const identity = { resourceId: '', threadId: 'notification-regression' };
+const residents: Record<string, string> = {};
+
+async function enrollAs(platform: 'whatsapp' | 'telegram', userId: string) {
+  const linked = await enroll({ channel: platform, externalId: userId }, { kind: 'code', text: (await issueCode({ kind: 'new-user', displayName: userId, role: 'member' })).code });
+  assert.ok(linked.status === 'linked');
+  residents[`${platform}:${userId}`] = resourceIdFor(linked.person.id);
+}
 
 async function fixture(t: TestContext, available = false) {
   const dir = await mkdtemp(join(tmpdir(), 'gary-notification-opt-in-'));
@@ -20,8 +28,10 @@ async function fixture(t: TestContext, available = false) {
   process.env.PLEX_URL = 'http://plex.test';
   process.env.PLEX_TOKEN = 'test-only';
   resetGaryOperationsStoreForTests();
+  resetPeopleStoreForTests();
   t.after(async () => {
     resetGaryOperationsStoreForTests();
+    resetPeopleStoreForTests();
     names.forEach((name, i) => {
       if (previous[i] === undefined) delete process.env[name]; else process.env[name] = previous[i];
     });
@@ -34,12 +44,19 @@ async function fixture(t: TestContext, available = false) {
       ? { Directory: [{ key: '1', type: 'movie' }] }
       : { Metadata: available ? [{ title: title.title, year: title.year, type: 'movie', ratingKey: 'test-movie' }] : [] } });
   });
+  await enrollAs('whatsapp', '15555550101');
+  await enrollAs('telegram', '12345');
+  identity.resourceId = residents['whatsapp:15555550101'];
 }
 
-async function invoke(channel: 'none' | 'telegram' | 'whatsapp', bound = identity) {
+async function invoke(channel: 'none' | 'telegram' | 'whatsapp', sender = 'whatsapp:15555550101') {
+  const [platform, userId] = sender.split(':');
   return await createMediaAvailabilityWatchTool.execute!(
     mediaAvailabilityWatchInputSchema.parse({ ...title, channel, resourceId: 'whatsapp:15555550999', threadId: 'untrusted-input' }),
-    { agent: bound } as never,
+    {
+      agent: { resourceId: residents[sender] ?? sender, threadId: identity.threadId },
+      requestContext: { get: (key: string) => (key === 'channel' ? { platform, userId, messageId: 'm1' } : undefined) },
+    } as never,
   ) as MediaAvailabilityWatchOutput;
 }
 
@@ -62,15 +79,15 @@ test('notification follow-up upgrades the same internal watch despite model chan
 
 test('new notification watches bind to the current Telegram chat over model routing', async (t) => {
   await fixture(t);
-  const result = await invoke('whatsapp', { resourceId: 'telegram:12345', threadId: 'telegram-test' });
+  const result = await invoke('whatsapp', 'telegram:12345');
   assert.equal(result.status, 'created');
   assert.equal(result.channel, 'telegram');
-  assert.equal((await listMediaAvailabilityWatches())[0].resourceId, 'telegram:12345');
+  assert.equal((await listMediaAvailabilityWatches())[0].resourceId, residents['telegram:12345']);
 });
 
-test('unsupported destinations fail without creating a watch or promising a message', async (t) => {
+test('an unidentified sender fails without creating a watch or promising a message', async (t) => {
   await fixture(t);
-  const result = await invoke('whatsapp', { resourceId: 'slack:test', threadId: 'slack-test' });
+  const result = await invoke('whatsapp', 'telegram:99999');
   assert.equal(result.status, 'service-unavailable');
   assert.doesNotMatch(result.summary, /will message/);
   assert.equal((await listMediaAvailabilityWatches()).length, 0);

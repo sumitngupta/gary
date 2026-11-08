@@ -1,25 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { MediaAvailabilityWatch } from '../schemas/media-availability-watch';
-import { claimGaryNotificationDelivery, completeGaryNotificationDelivery, failGaryNotificationDelivery } from './gary-notification-delivery-store';
-import { isGaryWhatsAppActorAuthorized } from './gary-access-policy';
 import { serverName } from '../config/branding';
 import { garyConfig } from '../config/gary-config';
-
-type MediaNotificationDelivery = {
-  sent: boolean;
-  reason: string | null;
-  telegramMessageId?: number;
-  whatsappMessageId?: string;
-};
-
-function telegramChatIdFromResource(resourceId: string) {
-  const match = resourceId.match(/^telegram:(.+)$/);
-  return match?.[1];
-}
-
-function whatsappUserIdFromResource(resourceId: string) {
-  return resourceId.match(/^whatsapp:(\d+)$/)?.[1];
-}
+import { deliverToAdmins, deliverToUser, type Delivery, type Notice } from '../channels/gary-channels';
+import { userIdFromResource } from '../channels/people';
 
 type AvailableWatch = Pick<MediaAvailabilityWatch, 'title' | 'year' | 'seasonNumber'> & Partial<Pick<MediaAvailabilityWatch, 'lastSnapshot'>>;
 
@@ -46,19 +30,6 @@ export function mediaAvailableBatchMessage(watches: AvailableWatch[]) {
   return `These titles are now available in ${serverName()}:\n${watches.map((watch) => `• ${mediaAvailableTitle(watch)}`).join('\n')}`;
 }
 
-export function whatsappAvailabilityTemplatePayload(to: string, watches: MediaAvailabilityWatch[]) {
-  const { templates } = garyConfig().whatsapp;
-  const name = watches.length > 1 ? templates.mediaBatch : templates.mediaAvailable;
-  return {
-    messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'template',
-    template: {
-      name,
-      language: { code: 'en_US' },
-      components: [{ type: 'body', parameters: [{ type: 'text', text: watches.map(mediaAvailableTitle).join('\n') }] }],
-    },
-  };
-}
-
 export function mediaIssueMessage(
   watch: Pick<MediaAvailabilityWatch, 'title' | 'year' | 'seasonNumber'>,
   issue: string,
@@ -80,85 +51,21 @@ export async function sendAvailabilityMessage(
   watch: MediaAvailabilityWatch,
   text: string,
   options?: { idempotencyKey?: string; kind?: 'media.available' | 'media.issue'; watches?: MediaAvailabilityWatch[] },
-): Promise<MediaNotificationDelivery> {
-  const config = garyConfig();
-  if (config.readOnly) return { sent: false, reason: 'Gary is running in read-only mode (GARY_READ_ONLY=true)' };
-  const idempotencyKey = options?.idempotencyKey;
-  if (idempotencyKey) {
-    const claimed = await claimGaryNotificationDelivery({ idempotencyKey, resourceId: watch.resourceId, channel: watch.channel, kind: options?.kind || 'media.available', targetIds: options?.watches?.map((item) => item.id) || [watch.id] });
-    if (!claimed.claimed) return { sent: false, reason: `Notification already ${claimed.status}` };
-  }
-  const fail = async (reason: string): Promise<MediaNotificationDelivery> => {
-    if (idempotencyKey) await failGaryNotificationDelivery(idempotencyKey, reason);
-    return { sent: false, reason };
-  };
-  if (watch.channel === 'whatsapp') {
-    const to = whatsappUserIdFromResource(watch.resourceId);
-    const { accessToken, phoneNumberId, graphVersion } = config.whatsapp;
-    if (!to || !await isGaryWhatsAppActorAuthorized(to)) {
-      return fail('WhatsApp notification target is not allowlisted');
-    }
-    if (!accessToken || !phoneNumberId) {
-      return fail('WhatsApp notification delivery is not configured');
-    }
-    const availabilityWatches = options?.kind === 'media.available' ? options.watches || [watch] : undefined;
-    const response = await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(availabilityWatches ? whatsappAvailabilityTemplatePayload(to, availabilityWatches) : {
-        messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'text',
-        text: { preview_url: false, body: text },
-      }),
-    });
-    const body = await response.json().catch(() => undefined) as {
-      messages?: Array<{ id?: string }>;
-      error?: { message?: string; code?: number };
-    } | undefined;
-    const messageId = body?.messages?.[0]?.id;
-    if (!response.ok || !messageId) {
-      return fail(`WhatsApp delivery failed: ${body?.error?.message || `HTTP ${response.status}`}`);
-    }
-    if (idempotencyKey) await completeGaryNotificationDelivery(idempotencyKey, messageId);
-    return { sent: true, reason: null, whatsappMessageId: messageId };
-  }
-
-  if (watch.channel !== 'telegram') {
-    return fail(`Unsupported notification channel: ${watch.channel}`);
-  }
-
-  const botToken = config.telegramBotToken;
-  const chatId = telegramChatIdFromResource(watch.resourceId);
-
-  if (!botToken || !chatId) {
-    return fail('Telegram bot token or Telegram chat id was not available');
-  }
-
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-    }),
+): Promise<Delivery> {
+  const userId = userIdFromResource(watch.resourceId);
+  if (!userId) return { sent: false, reason: 'The watch does not belong to an enrolled Gary user' };
+  const watches = options?.watches || [watch];
+  const notice: Notice = options?.kind === 'media.issue'
+    ? { kind: 'media.issue', text }
+    : { kind: 'media.available', text, titles: watches.map(mediaAvailableTitle) };
+  return deliverToUser(userId, notice, {
+    prefer: watch.channel === 'none' ? undefined : watch.channel,
+    idempotencyKey: options?.idempotencyKey,
+    targetIds: watches.map((item) => item.id),
   });
-
-  if (!response.ok) {
-    return fail(`Telegram returned HTTP ${response.status}`);
-  }
-  const body = await response.json().catch(() => undefined) as { result?: { message_id?: number } } | undefined;
-
-  const telegramMessageId = body?.result?.message_id;
-  if (idempotencyKey && telegramMessageId !== undefined) await completeGaryNotificationDelivery(idempotencyKey, String(telegramMessageId));
-  return {
-    sent: true,
-    reason: null,
-    telegramMessageId,
-  };
 }
 
-export async function sendMediaAvailableNotification(input: MediaAvailabilityWatch | MediaAvailabilityWatch[]) {
+export async function sendMediaAvailableNotification(input: MediaAvailabilityWatch | MediaAvailabilityWatch[]): Promise<Delivery> {
   const watches = Array.isArray(input) ? input : [input];
   const watch = watches[0];
   if (!watch) return { sent: false, reason: 'No availability watches to notify' };
@@ -167,23 +74,12 @@ export async function sendMediaAvailableNotification(input: MediaAvailabilityWat
   return await sendAvailabilityMessage(watch, summary, { idempotencyKey: `media.available:${batchKey}`, kind: 'media.available', watches });
 }
 
-export async function sendMediaIssueNotification(watch: MediaAvailabilityWatch, issue: string) {
-  const supervisor = garyConfig().owners.adminWhatsApp;
-  if (!supervisor) {
-    return { sent: false, reason: 'Gary supervisor WhatsApp is not configured' };
-  }
-
-  const summary = supervisorMediaIssueMessage(watch, issue);
-  const supervisorWatch: MediaAvailabilityWatch = {
-    ...watch,
-    resourceId: `whatsapp:${supervisor}`,
-    threadId: `whatsapp:${supervisor}`,
-    channel: 'whatsapp',
-  };
+export async function sendMediaIssueNotification(watch: MediaAvailabilityWatch, issue: string): Promise<Delivery> {
   const cooldownMs = garyConfig().stalledAlertCooldownHours * 3_600_000;
   const bucket = Math.floor(Date.now() / cooldownMs);
-  return await sendAvailabilityMessage(supervisorWatch, summary, {
-    idempotencyKey: `media.issue:${watch.id}:${issue}:${bucket}`,
-    kind: 'media.issue',
-  });
+  const results = await deliverToAdmins(
+    { kind: 'media.issue', text: supervisorMediaIssueMessage(watch, issue) },
+    { idempotencyKey: `media.issue:${watch.id}:${issue}:${bucket}` },
+  );
+  return results.find((result) => result.sent) ?? results[0] ?? { sent: false, reason: 'No admin is enrolled' };
 }

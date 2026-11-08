@@ -11,6 +11,7 @@ import {
   type StoredCollectionPackFile,
 } from './collection-pack-repair-store';
 import { createPendingIntent } from './gary-operations-store';
+import { admins, resourceIdFor } from '../channels/people';
 import { assertMutationAllowed, garyConfig, requireService } from '../config/gary-config';
 
 type RadarrMovie = { id: number; title: string; year?: number; tmdbId?: number; qualityProfileId?: number; path?: string };
@@ -78,9 +79,10 @@ async function startManualImport(files: Array<{ file: StoredCollectionPackFile; 
   });
 }
 
-function supervisorActor() {
-  const digits = garyConfig().owners.adminWhatsApp;
-  return digits ? `whatsapp:${digits}` : 'admin-household';
+/** Pack approvals belong to the owner admin's resource, so the owner's next "yes" binds to them. */
+async function supervisorActor() {
+  const [owner] = await admins();
+  return owner ? resourceIdFor(owner.id) : 'gary-admin';
 }
 
 export async function recoverApprovedTargetFromCollectionPack(input: {
@@ -115,7 +117,7 @@ export async function recoverApprovedTargetFromCollectionPack(input: {
     await recordCollectionPackTargetRepair(repairKey, 'started', command.id, { target: target.title, extras: extras.length });
     let planId: string | undefined;
     if (extras.length) {
-      const actorId = supervisorActor();
+      const actorId = await supervisorActor();
       const plan = await createCollectionPackPlan({ actorId, targetTitle: target.title, targetTmdbId: target.tmdbId, files: extras });
       planId = plan.id;
       await createPendingIntent({

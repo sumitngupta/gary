@@ -2,7 +2,7 @@ import { WhatsAppAdapter, type WhatsAppAdapterConfig } from '@chat-adapter/whats
 import { ConsoleLogger } from 'chat';
 import { deleteGaryMessageReference, getGaryMessageReference, rememberGaryMessageReference } from './gary-conversation-state-store';
 import { attachPendingIntentProposalMessage, invalidatePendingIntentForMessage, recordWhatsAppEvent, resolvePendingIntent } from './gary-operations-store';
-import { garyConfig } from '../config/gary-config';
+import { assertMutationAllowed, garyConfig, type WhatsAppSettings } from '../config/gary-config';
 
 const GROUP_MARKER = 'group_';
 
@@ -10,8 +10,16 @@ function groupRecipient(value: string) {
   return value.startsWith(GROUP_MARKER) ? value.slice(GROUP_MARKER.length) : undefined;
 }
 
-export function garyWhatsAppResourceId(userId: string) {
-  return `whatsapp:${userId}`;
+/** Template body for availability notices, which may arrive outside WhatsApp's 24-hour reply window. */
+export function whatsappAvailabilityTemplatePayload(to: string, titles: string[], templates: WhatsAppSettings['templates']) {
+  return {
+    messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'template',
+    template: {
+      name: titles.length > 1 ? templates.mediaBatch : templates.mediaAvailable,
+      language: { code: 'en_US' },
+      components: [{ type: 'body', parameters: [{ type: 'text', text: titles.join('\n') }] }],
+    },
+  };
 }
 
 export function garyWhatsAppRawReaction(inbound: any) {
@@ -61,6 +69,7 @@ export const QUOTED_REPLY_BINDING_GUIDANCE = 'A target mismatch or ambiguity mus
 
 export class GaryWhatsAppAdapter extends WhatsAppAdapter {
   private reactionHandlerRegistered = false;
+  private readonly templates: WhatsAppSettings['templates'];
   private readonly messageTextById = new Map<string, string>();
 
   private rememberMessage(id: string | undefined, text: string | undefined, threadId?: string, actorId?: string, direction: 'inbound' | 'outbound' = 'inbound') {
@@ -76,11 +85,29 @@ export class GaryWhatsAppAdapter extends WhatsAppAdapter {
     phoneNumberId: string;
     verifyToken: string;
     userName: string;
+    templates?: WhatsAppSettings['templates'];
   }) {
     super({
       ...config,
       logger: config.logger || new ConsoleLogger('info').child('whatsapp'),
     });
+    this.templates = config.templates ?? { mediaAvailable: 'gary_media_available', mediaBatch: 'gary_tracked_titles_available' };
+  }
+
+  protected override graphApiRequest<T>(path: string, body: unknown): Promise<T> {
+    assertMutationAllowed('message');
+    return super.graphApiRequest<T>(path, body);
+  }
+
+  async sendDirectText(to: string, text: string) {
+    return (await this.postMessage(await this.openDM(to), text)).id;
+  }
+
+  async sendAvailabilityTemplate(to: string, titles: string[]) {
+    const response = await this.graphApiRequest<{ messages?: Array<{ id?: string }> }>(`/${this.phoneNumberId}/messages`, whatsappAvailabilityTemplatePayload(to, titles, this.templates));
+    const id = response.messages?.[0]?.id;
+    if (!id) throw new Error('WhatsApp API did not return a message ID');
+    return id;
   }
 
   isReady() {
@@ -143,7 +170,7 @@ export class GaryWhatsAppAdapter extends WhatsAppAdapter {
       void this.handleQuotedInboundMessage(inbound, contact, phoneNumberId, quotedMessageId, options);
       return;
     }
-    if (!garyConfig().whatsapp.groupsEnabled) {
+    if (!garyConfig().whatsapp?.groupsEnabled) {
       this.logger.info('WhatsApp group message ignored while group support is disabled', {
         groupId,
         messageId: inbound.id,
@@ -258,6 +285,7 @@ export class GaryWhatsAppAdapter extends WhatsAppAdapter {
   }
 }
 
-export function createGaryWhatsAppAdapter(config: ConstructorParameters<typeof GaryWhatsAppAdapter>[0]) {
-  return new GaryWhatsAppAdapter(config);
+export function createGaryWhatsAppAdapter(settings: WhatsAppSettings) {
+  const { accessToken, appSecret, phoneNumberId, verifyToken, graphVersion, templates } = settings;
+  return new GaryWhatsAppAdapter({ accessToken, appSecret, phoneNumberId, verifyToken, apiVersion: graphVersion, userName: 'gary', templates });
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { GaryWhatsAppAdapter, QUOTED_REPLY_BINDING_GUIDANCE, garyWhatsAppQuotedReplyPrompt, garyWhatsAppRawReaction, garyWhatsAppReactionPrompt, garyWhatsAppReferenceText, garyWhatsAppResourceId } from './gary-whatsapp-adapter';
+import { GaryWhatsAppAdapter, QUOTED_REPLY_BINDING_GUIDANCE, garyWhatsAppQuotedReplyPrompt, garyWhatsAppRawReaction, garyWhatsAppReactionPrompt, garyWhatsAppReferenceText, whatsappAvailabilityTemplatePayload } from './gary-whatsapp-adapter';
 
 class TestAdapter extends GaryWhatsAppAdapter {
   calls: Array<{ path: string; body: unknown }> = [];
@@ -27,8 +27,12 @@ test('represents a WhatsApp group as a non-DM thread', async () => {
   assert.equal(thread.metadata.groupId, 'group-123');
 });
 
-test('uses the Chat SDK sender id for the WhatsApp memory resource', () => {
-  assert.equal(garyWhatsAppResourceId('15550100002'), 'whatsapp:15550100002');
+test('selects single and batch WhatsApp availability templates deterministically', () => {
+  const templates = { mediaAvailable: 'gary_media_available', mediaBatch: 'gary_tracked_titles_available' };
+  assert.equal(whatsappAvailabilityTemplatePayload('15550001111', ['Labyrinth (1986)'], templates).template.name, 'gary_media_available');
+  const batch = whatsappAvailabilityTemplatePayload('15550001111', ['Labyrinth (1986)', 'The Karate Kid (1984)'], templates);
+  assert.equal(batch.template.name, 'gary_tracked_titles_available');
+  assert.equal(batch.template.components[0]?.parameters[0]?.text, 'Labyrinth (1986)\nThe Karate Kid (1984)');
 });
 
 test('sends group replies with the group recipient type', async () => {

@@ -29,10 +29,10 @@ test('every created media request gets a correlated lifecycle watch without inve
   }
 });
 
-test('WhatsApp media requests use the canonical saved requester name', () => {
-  assert.equal(resolveMediaRequester('Notin', 'whatsapp:123', 'Bob'), 'Bob');
+test('chat media requests use the canonical saved requester name', () => {
+  assert.equal(resolveMediaRequester('Notin', 'gary-user:u_0123456789abcdef', 'Bob'), 'Bob');
   assert.equal(resolveMediaRequester('Delegated requester', 'admin-household', 'Bob'), 'Delegated requester');
-  assert.equal(resolveMediaRequester('Unprofiled', 'whatsapp:456'), 'Unprofiled');
+  assert.equal(resolveMediaRequester('Unprofiled', 'gary-user:u_0123456789abcdef'), 'Unprofiled');
 });
 
 test('hard quality objective selects the configured Arr profile without changing household defaults', (t) => {

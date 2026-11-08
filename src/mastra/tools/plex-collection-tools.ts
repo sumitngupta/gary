@@ -1,4 +1,4 @@
-import { createTool, type ToolExecutionContext } from '@mastra/core/tools';
+import { createTool } from '@mastra/core/tools';
 import {
   executePlexCollectionChangeInputSchema, executePlexCollectionChangeOutputSchema,
   inspectPlexCollectionsInputSchema, inspectPlexCollectionsOutputSchema,
@@ -9,13 +9,8 @@ import { createPlexCollection, deletePlexCollection, listPlexCollections, resolv
 import { collectionOwner, consumePlexCollectionPreview, createPlexCollectionPreview, recordCollectionOwner, recordPlexCollectionEvent, removeCollectionOwner, replaceCollectionOwner } from '../services/plex-collection-store';
 import { createPendingIntent } from '../services/gary-operations-store';
 import { checkMediaStatuses } from './check-media-statuses-tool';
-import { mediaOwnerActors } from '../config/gary-config';
+import { callerActor } from '../channels/gary-channels';
 
-function actor(context: ToolExecutionContext | undefined) {
-  const channel = context?.requestContext?.get('channel') as { platform?: string; userId?: string } | undefined;
-  if (channel?.platform && channel.userId) return `${channel.platform.toLowerCase()}:${channel.userId.replace(/\D/g, '')}`;
-  return context?.agent?.resourceId || '';
-}
 async function ownership(ratingKey: string, actorId: string) {
   const owner = await collectionOwner(ratingKey);
   return owner === actorId ? 'caller' as const : owner ? 'other' as const : 'legacy' as const;
@@ -28,7 +23,7 @@ export const inspectPlexCollectionsTool = createTool({
   inputSchema: inspectPlexCollectionsInputSchema, outputSchema: inspectPlexCollectionsOutputSchema,
   execute: async (input, context) => {
     try {
-      const actorId = actor(context); let collections = await listPlexCollections(input.mediaType);
+      const { actorId } = await callerActor(context); let collections = await listPlexCollections(input.mediaType);
       if (input.title) collections = collections.filter((item) => normalize(item.title) === normalize(input.title!));
       const views = await Promise.all(collections.map((item) => publicView(item, actorId)));
       return { status: views.length ? 'ok' as const : 'not-found' as const, collections: views, summary: views.length ? `Found ${views.length} exact Plex collection${views.length === 1 ? '' : 's'}.` : 'No matching Plex collection was found.' };
@@ -40,7 +35,7 @@ export const previewPlexCollectionChangeTool = createTool({
   id: 'preview-plex-collection-change', description: 'Create a creator-bound immutable preview for a Plex collection create, metadata/membership update, or collection-only deletion. Resolves exact available library items and reports missing or ambiguous items. Never requests media or mutates Plex.',
   inputSchema: previewPlexCollectionChangeInputSchema, outputSchema: previewPlexCollectionChangeOutputSchema,
   execute: async (raw, context) => {
-    const input = previewPlexCollectionChangeInputSchema.parse(raw); const actorId = actor(context);
+    const input = previewPlexCollectionChangeInputSchema.parse(raw); const { actorId, isAdmin } = await callerActor(context);
     try {
       const collections = await listPlexCollections(input.mediaType);
       const matches = collections.filter((item) => normalize(item.title) === normalize(input.collectionTitle));
@@ -50,7 +45,7 @@ export const previewPlexCollectionChangeTool = createTool({
       if (input.action !== 'create' && !existing) return { status: 'not-found' as const, action: input.action, collectionTitle: input.collectionTitle, available: [], alreadyRequested: [], missing: [], ambiguous: [], removed: [], summary: 'That collection was not found.' };
       if (existing) {
         const owner = await collectionOwner(existing.ratingKey);
-        if (owner !== actorId && !(mediaOwnerActors().has(actorId) && !owner)) return { status: 'denied' as const, action: input.action, collectionTitle: input.collectionTitle, available: [], alreadyRequested: [], missing: [], ambiguous: [], removed: [], summary: owner ? 'You can manage only collections you created.' : 'This legacy collection is owner-managed.' };
+        if (owner !== actorId && !(isAdmin && !owner)) return { status: 'denied' as const, action: input.action, collectionTitle: input.collectionTitle, available: [], alreadyRequested: [], missing: [], ambiguous: [], removed: [], summary: owner ? 'You can manage only collections you created.' : 'This legacy collection is owner-managed.' };
       }
       const resolutions = await resolveExactPlexLibraryItems([...input.add, ...input.remove]);
       const available: PlexCollectionResolution[] = []; const alreadyRequested: PlexCollectionResolution[] = []; const missing: PlexCollectionResolution[] = []; const ambiguous: PlexCollectionResolution[] = [];
@@ -92,7 +87,7 @@ export const executePlexCollectionChangeTool = createTool({
   id: 'execute-plex-collection-change', description: 'Apply exactly one creator-bound, single-use, conversationally approved Plex collection preview. Never requests, deletes, or changes media files or request records.',
   inputSchema: executePlexCollectionChangeInputSchema, outputSchema: executePlexCollectionChangeOutputSchema,
   execute: async ({ previewId }, context) => {
-    const actorId = actor(context); const preview = await consumePlexCollectionPreview(previewId, actorId);
+    const { actorId } = await callerActor(context); const preview = await consumePlexCollectionPreview(previewId, actorId);
     if (!preview) return { status: 'expired' as const, summary: 'That preview expired, was already used, or belongs to another user.' };
     const input = preview.input; const before = preview.before as PlexCollectionView | undefined;
     try {

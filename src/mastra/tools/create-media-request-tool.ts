@@ -24,6 +24,7 @@ import { getGaryUserProfile } from '../services/gary-user-profile-store';
 import { readConfiguredStorageHealth, type StorageHealth } from '../services/storage-health';
 import { serverName, serverNameTitle } from '../config/branding';
 import { assertMutationAllowed, hardQualityProfileId } from '../config/gary-config';
+import { userIdFromResource } from '../channels/people';
 
 export const LARGE_TV_CATALOG_SEASON_THRESHOLD = 6;
 
@@ -59,7 +60,7 @@ export function resolveMediaRequestQualityProfile(request: MediaRequestCreateInp
 }
 
 export function resolveMediaRequester(inputRequester: string, resourceId?: string, preferredName?: string) {
-  if (resourceId?.startsWith('whatsapp:') && preferredName?.trim()) return preferredName.trim();
+  if (userIdFromResource(resourceId) && preferredName?.trim()) return preferredName.trim();
   return inputRequester;
 }
 
@@ -323,7 +324,7 @@ export const createMediaRequestTool = createTool({
   outputSchema: mediaRequestCreateOutputSchema,
   execute: async (input, context) => {
     const resourceId = context.agent?.resourceId;
-    const profile = resourceId?.startsWith('whatsapp:')
+    const profile = resourceId && userIdFromResource(resourceId)
       ? await getGaryUserProfile(resourceId)
       : undefined;
     const canonicalInput = {

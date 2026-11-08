@@ -21,7 +21,6 @@ const url = z.url({ protocol: /^https?$/, error: 'must be an http:// or https://
 const flag = (fallback: boolean) => z.stringbool().default(fallback);
 const count = (fallback: number) => z.coerce.number().int().nonnegative().default(fallback);
 const positive = (fallback: number) => z.coerce.number().int().positive().default(fallback);
-const csv = z.string().default('').transform((value) => value.split(',').map((item) => item.trim()).filter(Boolean));
 
 const envSchema = z.object({
   GARY_DATA_DIR: z.string().default('./data'),
@@ -33,8 +32,11 @@ const envSchema = z.object({
   GARY_MEDIA_EVENTS_TOKEN: text,
   GARY_ALLOW_REQUESTS: flag(true),
   GARY_READ_ONLY: flag(false),
-  GARY_MEDIA_OWNER_ACTORS: csv,
-  GARY_ADMIN_WHATSAPP: text,
+  GARY_ADMIN_PASSWORD: text,
+  GARY_DAILY_MUTATION_LIMIT: count(10),
+  GARY_DAILY_LIST_LIMIT: count(100),
+  GARY_HOURLY_WEB_LIMIT: count(100),
+  GARY_HOURLY_INBOUND_LIMIT: count(120),
   GARY_CONFIRMATION_TTL_MINUTES: positive(15),
   GARY_BATCH_THROTTLE_MS: z.coerce.number().int().min(0).max(10_000).default(500),
   GARY_STALLED_ALERT_COOLDOWN_HOURS: z.coerce.number().positive().default(6),
@@ -65,25 +67,15 @@ const envSchema = z.object({
   SABNZBD_URL: url,
   SABNZBD_API_KEY: text,
 
-  GARY_WHATSAPP_ENABLED: flag(false),
   GARY_WHATSAPP_ACCESS_TOKEN: text,
   GARY_WHATSAPP_APP_SECRET: text,
   GARY_WHATSAPP_PHONE_NUMBER_ID: text,
   GARY_WHATSAPP_VERIFY_TOKEN: text,
   GARY_WHATSAPP_GRAPH_VERSION: z.string().default('v25.0'),
   GARY_WHATSAPP_GROUPS_ENABLED: flag(false),
-  GARY_WHATSAPP_ALLOWED_USERS: csv,
-  GARY_WHATSAPP_MUTATIONS_ENABLED: flag(false),
-  GARY_WHATSAPP_WEB_ENABLED: flag(true),
-  GARY_WHATSAPP_SCHEDULING_ENABLED: flag(false),
-  GARY_WHATSAPP_DAILY_MUTATION_LIMIT: count(10),
-  GARY_WHATSAPP_DAILY_LIST_LIMIT: count(100),
-  GARY_WHATSAPP_HOURLY_WEB_LIMIT: count(100),
-  GARY_WHATSAPP_HOURLY_INBOUND_LIMIT: count(120),
-  GARY_WHATSAPP_GLOBAL_CONCURRENCY: positive(3),
   GARY_WHATSAPP_MEDIA_AVAILABLE_TEMPLATE: z.string().default('gary_media_available'),
   GARY_WHATSAPP_MEDIA_BATCH_TEMPLATE: z.string().default('gary_tracked_titles_available'),
-  GARY_TELEGRAM_BOT_TOKEN: text,
+  TELEGRAM_BOT_TOKEN: text,
 
   EXA_API_KEY: text,
   BRIGHTDATA_API_TOKEN: text,
@@ -113,7 +105,7 @@ export type GaryConfig = {
   allowRequests: boolean;
   model: ModelSettings;
   services: Partial<Record<MediaServiceName, ServiceEndpoint>>;
-  owners: { actors: string[]; adminWhatsApp?: string };
+  policy: { dailyMutationLimit: number; dailyListLimit: number; hourlyWebLimit: number; hourlyInboundLimit: number };
   requests: {
     confirmationTtlMinutes: number;
     batchThrottleMs: number;
@@ -121,30 +113,23 @@ export type GaryConfig = {
   };
   storage: { healthFile?: string; warningPercent: number; criticalPercent: number };
   stalledAlertCooldownHours: number;
-  whatsapp: {
-    enabled: boolean;
-    accessToken?: string;
-    appSecret?: string;
-    phoneNumberId?: string;
-    verifyToken?: string;
-    graphVersion: string;
-    groupsEnabled: boolean;
-    allowedUsers: string[];
-    mutationsEnabled: boolean;
-    webEnabled: boolean;
-    schedulingEnabled: boolean;
-    dailyMutationLimit: number;
-    dailyListLimit: number;
-    hourlyWebLimit: number;
-    hourlyInboundLimit: number;
-    globalConcurrency: number;
-    templates: { mediaAvailable: string; mediaBatch: string };
-  };
-  telegramBotToken?: string;
+  web: { adminPassword?: string };
+  telegram?: { botToken: string };
+  whatsapp?: WhatsAppSettings;
   webLookup: {
     exaApiKey?: string;
     brightData: { apiToken?: string; serpZone: string; webUnlockerZone?: string };
   };
+};
+
+export type WhatsAppSettings = {
+  accessToken: string;
+  appSecret: string;
+  phoneNumberId: string;
+  verifyToken: string;
+  graphVersion: string;
+  groupsEnabled: boolean;
+  templates: { mediaAvailable: string; mediaBatch: string };
 };
 
 export class GaryConfigError extends Error {
@@ -178,6 +163,26 @@ function parseServices(env: GaryEnv, problems: string[]) {
   return services;
 }
 
+const WHATSAPP_CREDENTIALS = ['GARY_WHATSAPP_ACCESS_TOKEN', 'GARY_WHATSAPP_APP_SECRET', 'GARY_WHATSAPP_PHONE_NUMBER_ID', 'GARY_WHATSAPP_VERIFY_TOKEN'] as const;
+
+function parseWhatsApp(env: GaryEnv, problems: string[]): WhatsAppSettings | undefined {
+  const missing = WHATSAPP_CREDENTIALS.filter((name) => !env[name]);
+  if (missing.length === WHATSAPP_CREDENTIALS.length) return undefined;
+  if (missing.length) {
+    problems.push(`WhatsApp is partly configured. Also set ${missing.join(', ')}, or unset the other GARY_WHATSAPP_* credentials.`);
+    return undefined;
+  }
+  return {
+    accessToken: env.GARY_WHATSAPP_ACCESS_TOKEN!,
+    appSecret: env.GARY_WHATSAPP_APP_SECRET!,
+    phoneNumberId: env.GARY_WHATSAPP_PHONE_NUMBER_ID!,
+    verifyToken: env.GARY_WHATSAPP_VERIFY_TOKEN!,
+    graphVersion: env.GARY_WHATSAPP_GRAPH_VERSION,
+    groupsEnabled: env.GARY_WHATSAPP_GROUPS_ENABLED,
+    templates: { mediaAvailable: env.GARY_WHATSAPP_MEDIA_AVAILABLE_TEMPLATE, mediaBatch: env.GARY_WHATSAPP_MEDIA_BATCH_TEMPLATE },
+  };
+}
+
 function parseModel(env: GaryEnv, problems: string[]): ModelSettings {
   const apiKey = env.LLM_API_KEY || env.OPENAI_API_KEY;
   if (env.LLM_BASE_URL) {
@@ -201,6 +206,7 @@ export function parseGaryConfig(rawEnv: Record<string, string | undefined>): Gar
   const problems: string[] = [];
   const services = parseServices(env, problems);
   const model = parseModel(env, problems);
+  const whatsapp = parseWhatsApp(env, problems);
   if (problems.length) throw new GaryConfigError(problems);
 
   return {
@@ -215,7 +221,12 @@ export function parseGaryConfig(rawEnv: Record<string, string | undefined>): Gar
     allowRequests: env.GARY_ALLOW_REQUESTS,
     model,
     services,
-    owners: { actors: env.GARY_MEDIA_OWNER_ACTORS, adminWhatsApp: env.GARY_ADMIN_WHATSAPP?.replace(/\D/g, '') || undefined },
+    policy: {
+      dailyMutationLimit: env.GARY_DAILY_MUTATION_LIMIT,
+      dailyListLimit: env.GARY_DAILY_LIST_LIMIT,
+      hourlyWebLimit: env.GARY_HOURLY_WEB_LIMIT,
+      hourlyInboundLimit: env.GARY_HOURLY_INBOUND_LIMIT,
+    },
     requests: {
       confirmationTtlMinutes: env.GARY_CONFIRMATION_TTL_MINUTES,
       batchThrottleMs: env.GARY_BATCH_THROTTLE_MS,
@@ -227,26 +238,9 @@ export function parseGaryConfig(rawEnv: Record<string, string | undefined>): Gar
       criticalPercent: env.GARY_STORAGE_CRITICAL_PERCENT,
     },
     stalledAlertCooldownHours: env.GARY_STALLED_ALERT_COOLDOWN_HOURS,
-    whatsapp: {
-      enabled: env.GARY_WHATSAPP_ENABLED,
-      accessToken: env.GARY_WHATSAPP_ACCESS_TOKEN,
-      appSecret: env.GARY_WHATSAPP_APP_SECRET,
-      phoneNumberId: env.GARY_WHATSAPP_PHONE_NUMBER_ID,
-      verifyToken: env.GARY_WHATSAPP_VERIFY_TOKEN,
-      graphVersion: env.GARY_WHATSAPP_GRAPH_VERSION,
-      groupsEnabled: env.GARY_WHATSAPP_GROUPS_ENABLED,
-      allowedUsers: env.GARY_WHATSAPP_ALLOWED_USERS,
-      mutationsEnabled: env.GARY_WHATSAPP_MUTATIONS_ENABLED,
-      webEnabled: env.GARY_WHATSAPP_WEB_ENABLED,
-      schedulingEnabled: env.GARY_WHATSAPP_SCHEDULING_ENABLED,
-      dailyMutationLimit: env.GARY_WHATSAPP_DAILY_MUTATION_LIMIT,
-      dailyListLimit: env.GARY_WHATSAPP_DAILY_LIST_LIMIT,
-      hourlyWebLimit: env.GARY_WHATSAPP_HOURLY_WEB_LIMIT,
-      hourlyInboundLimit: env.GARY_WHATSAPP_HOURLY_INBOUND_LIMIT,
-      globalConcurrency: env.GARY_WHATSAPP_GLOBAL_CONCURRENCY,
-      templates: { mediaAvailable: env.GARY_WHATSAPP_MEDIA_AVAILABLE_TEMPLATE, mediaBatch: env.GARY_WHATSAPP_MEDIA_BATCH_TEMPLATE },
-    },
-    telegramBotToken: env.GARY_TELEGRAM_BOT_TOKEN,
+    web: { adminPassword: env.GARY_ADMIN_PASSWORD },
+    telegram: env.TELEGRAM_BOT_TOKEN ? { botToken: env.TELEGRAM_BOT_TOKEN } : undefined,
+    whatsapp,
     webLookup: {
       exaApiKey: env.EXA_API_KEY,
       brightData: { apiToken: env.BRIGHTDATA_API_TOKEN, serpZone: env.BRIGHTDATA_SERP_ZONE, webUnlockerZone: env.BRIGHTDATA_WEB_UNLOCKER_ZONE },
@@ -291,13 +285,6 @@ export function assertMutationAllowed(kind: GaryMutation, config = garyConfig())
   if (kind === 'request' && !config.allowRequests) {
     throw new Error('New media requests are turned off on this server (GARY_ALLOW_REQUESTS=false), so I did not submit that request.');
   }
-}
-
-export function mediaOwnerActors(config = garyConfig()) {
-  const actors = new Set(config.owners.actors);
-  if (config.owners.adminWhatsApp) actors.add(`whatsapp:${config.owners.adminWhatsApp}`);
-  actors.add('admin-household');
-  return actors;
 }
 
 export function hardQualityProfileId(mediaType: 'movie' | 'tv', config = garyConfig()) {

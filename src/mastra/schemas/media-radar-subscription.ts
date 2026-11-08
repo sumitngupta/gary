@@ -9,7 +9,7 @@ export const mediaRadarSubscriptionSchema = z.object({
   requester: z.string().min(1),
   resourceId: z.string().min(1),
   threadId: z.string().min(1),
-  channel: z.enum(['telegram', 'whatsapp', 'none']),
+  channel: z.enum(['web', 'telegram', 'whatsapp', 'none']),
   theme: z.string().min(1),
   cron: z.string().min(1),
   timezone: z.string().min(1),

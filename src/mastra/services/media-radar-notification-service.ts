@@ -1,8 +1,6 @@
 import { getMediaRadarSubscription, updateMediaRadarSubscription } from './media-radar-subscription-store';
-import { sendWhatsAppMediaRadar } from './whatsapp-media-radar-delivery';
-import { assertMutationAllowed, garyConfig } from '../config/gary-config';
-
-export { sendWhatsAppMediaRadar } from './whatsapp-media-radar-delivery';
+import { deliverToUser } from '../channels/gary-channels';
+import { userIdFromResource } from '../channels/people';
 
 function minutesInTimezone(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
@@ -33,22 +31,10 @@ export async function deliverMediaRadar(scheduleId: string, text: string) {
   }
 
   if (subscription.status !== 'active' || subscription.channel === 'none') return { sent: false, reason: 'inactive or no delivery channel' };
-  assertMutationAllowed('message');
-
-  if (subscription.channel === 'telegram') {
-    const token = garyConfig().telegramBotToken;
-    const chatId = subscription.resourceId.match(/^telegram:(.+)$/)?.[1];
-    if (!token || !chatId) throw new Error('Telegram delivery is not configured for this radar.');
-    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text }),
-    });
-    const body = await response.json() as { ok?: boolean; result?: { message_id?: number } };
-    if (!response.ok || !body.ok || !body.result?.message_id) throw new Error(`Telegram delivery was not accepted (HTTP ${response.status}).`);
-  }
-
-  if (subscription.channel === 'whatsapp') {
-    await sendWhatsAppMediaRadar(subscription.resourceId, text);
-  }
+  const userId = userIdFromResource(subscription.resourceId);
+  if (!userId) throw new Error('This radar does not belong to an enrolled Gary user.');
+  const delivery = await deliverToUser(userId, { kind: 'media.radar', text }, { prefer: subscription.channel });
+  if (!delivery.sent) throw new Error(delivery.reason);
 
   await updateMediaRadarSubscription(subscription.id, { lastDeliveredAt: new Date().toISOString(), lastError: undefined });
   return { sent: true };

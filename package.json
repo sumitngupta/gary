@@ -27,6 +27,7 @@
     "@mastra/libsql": "1.16.0",
     "@mastra/loggers": "1.2.0",
     "@mastra/memory": "1.23.0",
+    "ai": "7.0.165",
     "chat": "4.34.0",
     "tsx": "4.23.0",
     "zod": "4.4.3"

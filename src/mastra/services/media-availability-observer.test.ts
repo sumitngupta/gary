@@ -10,6 +10,7 @@ import { resetGaryOperationsStoreForTests } from './gary-operations-store';
 import { resetGaryNotificationDeliveryStoreForTests } from './gary-notification-delivery-store';
 import { sweepMediaAvailabilityWatches } from './media-availability-observer';
 import { serverName } from '../config/branding';
+import { enroll, issueCode, resetPeopleStoreForTests, resourceIdFor } from '../channels/people';
 
 const show = { title: 'Silicon Valley', year: 2014, tmdbId: 60573, mediaType: 'tv' as const, requester: 'Grace' };
 const seasonLengths: Record<number, number> = { 1: 8, 2: 10, 3: 10, 4: 10, 5: 8, 6: 7 };
@@ -35,14 +36,17 @@ async function fixture(t: TestContext, library: Library) {
     SONARR_API_KEY: 'test-only',
     SEERR_URL: 'http://seerr.test',
     SEERR_API_KEY: 'test-only',
-    GARY_TELEGRAM_BOT_TOKEN: 'test-only',
+    TELEGRAM_BOT_TOKEN: 'test-only',
+    GARY_READ_ONLY: 'false',
   });
   resetGaryOperationsStoreForTests();
   resetGaryNotificationDeliveryStoreForTests();
+  resetPeopleStoreForTests();
   t.after(async () => {
     process.env = previousEnv;
     resetGaryOperationsStoreForTests();
     resetGaryNotificationDeliveryStoreForTests();
+    resetPeopleStoreForTests();
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -55,7 +59,7 @@ async function fixture(t: TestContext, library: Library) {
     const { host, pathname } = new URL(url);
     if (host === 'api.telegram.org') {
       telegram.push(JSON.parse(String(init?.body)).text);
-      return Response.json({ result: { message_id: telegram.length } });
+      return Response.json({ ok: true, result: { message_id: telegram.length, date: 0, chat: { id: 4242, type: 'private' }, text: 'sent' } });
     }
     if (host === 'seerr.test') return Response.json({ results: [] });
     if (host === 'sonarr.test') {
@@ -93,13 +97,18 @@ async function fixture(t: TestContext, library: Library) {
     throw new Error(`Unexpected external call: ${url}`);
   });
 
+  const linked = await enroll({ channel: 'telegram', externalId: '4242' }, { kind: 'code', text: (await issueCode({ kind: 'new-user', displayName: 'Grace', role: 'member' })).code });
+  assert.ok(linked.status === 'linked');
+  graceResource = resourceIdFor(linked.person.id);
   return { telegram };
 }
+
+let graceResource = '';
 
 async function requestWatch(input: Partial<typeof show> & { seasonNumber?: number } = {}) {
   return await createMediaAvailabilityWatchTool.execute!(
     mediaAvailabilityWatchInputSchema.parse({ ...show, ...input }),
-    { agent: { resourceId: 'telegram:4242', threadId: 'grace' } } as never,
+    { agent: { resourceId: graceResource, threadId: 'grace' }, requestContext: { get: (key: string) => (key === 'channel' ? { platform: 'telegram', userId: '4242', messageId: 'm1' } : undefined) } } as never,
   ) as MediaAvailabilityWatchOutput;
 }
 
@@ -118,7 +127,7 @@ test('a show with only season 1 imported is partial until every requested season
 
   assert.deepEqual(await sweepMediaAvailabilityWatches(), { checked: 2, notified: 0, failed: 0, skipped: 0 });
   assert.deepEqual(telegram, []);
-  const grace = await storedWatch('telegram:4242');
+  const grace = await storedWatch(graceResource);
   assert.equal(grace.status, 'active');
   assert.equal(grace.lastSnapshot?.availableInLibrary, false);
   assert.equal(grace.lastSnapshot?.tvCompleteness?.state, 'partial');
@@ -130,7 +139,7 @@ test('a show with only season 1 imported is partial until every requested season
 
   assert.deepEqual(await sweepMediaAvailabilityWatches(), { checked: 2, notified: 1, failed: 0, skipped: 0 });
   assert.deepEqual(telegram, [`All 6 seasons of Silicon Valley (2014) are now available in ${serverName()}.`]);
-  assert.equal((await storedWatch('telegram:4242')).status, 'notified');
+  assert.equal((await storedWatch(graceResource)).status, 'notified');
   assert.equal((await storedWatch('whatsapp:15555550101')).status, 'available');
 
   assert.deepEqual(await sweepMediaAvailabilityWatches(), { checked: 0, notified: 0, failed: 0, skipped: 0 });
@@ -146,7 +155,7 @@ test('a currently airing show is complete when every aired episode is present', 
   });
   assert.equal((await requestWatch()).status, 'already-available');
 
-  await createMediaAvailabilityWatch({ ...show, resourceId: 'telegram:4242', threadId: 'grace', channel: 'telegram' });
+  await createMediaAvailabilityWatch({ ...show, resourceId: graceResource, threadId: 'grace', channel: 'telegram' });
   assert.equal((await sweepMediaAvailabilityWatches()).notified, 1);
   assert.deepEqual(telegram, [`All 2 seasons of Silicon Valley (2014) are now available in ${serverName()}.`]);
 });
@@ -155,7 +164,7 @@ test('a season-scoped watch completes when its season is in even if a later seas
   const { telegram } = await fixture(t, { sonarr: 'managed', hasFile: (season) => season <= 2, airDate: () => past });
   assert.equal((await requestWatch({ seasonNumber: 2 })).status, 'already-available');
 
-  await createMediaAvailabilityWatch({ ...show, seasonNumber: 2, resourceId: 'telegram:4242', threadId: 'grace', channel: 'telegram' });
+  await createMediaAvailabilityWatch({ ...show, seasonNumber: 2, resourceId: graceResource, threadId: 'grace', channel: 'telegram' });
   assert.equal((await sweepMediaAvailabilityWatches()).notified, 1);
   assert.deepEqual(telegram, [`Silicon Valley (2014) season 2 is now available in ${serverName()}.`]);
 });
@@ -171,7 +180,7 @@ test('a show Sonarr does not manage keeps the Plex-only availability behavior', 
   const { telegram } = await fixture(t, { sonarr: 'unmanaged', hasFile: (season) => season === 1, airDate: () => past });
   assert.equal((await requestWatch()).status, 'already-available');
 
-  await createMediaAvailabilityWatch({ ...show, resourceId: 'telegram:4242', threadId: 'grace', channel: 'telegram' });
+  await createMediaAvailabilityWatch({ ...show, resourceId: graceResource, threadId: 'grace', channel: 'telegram' });
   assert.equal((await sweepMediaAvailabilityWatches()).notified, 1);
   assert.deepEqual(telegram, [`Silicon Valley (2014) is now available in ${serverName()}.`]);
 });
@@ -185,7 +194,7 @@ test('a Sonarr outage never reports a playable show as complete', async (t) => {
   const totals = await sweepMediaAvailabilityWatches();
   assert.equal(totals.notified, 0);
   assert.deepEqual(telegram, []);
-  const watch = await storedWatch('telegram:4242');
+  const watch = await storedWatch(graceResource);
   assert.equal(watch.status, 'active');
   assert.equal(watch.lastSnapshot?.status, 'service-unavailable');
 });

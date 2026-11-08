@@ -5,6 +5,7 @@ import {
   updateMediaAvailabilityWatch,
 } from './media-availability-watch-store';
 import { sendMediaAvailableNotification, sendMediaIssueNotification } from './media-notification-service';
+import type { Delivery } from '../channels/gary-channels';
 import type {
   MediaAvailabilityWatch,
   MediaAvailabilityWatchSnapshot,
@@ -230,9 +231,7 @@ export async function checkMediaAvailabilityWatch(watch: MediaAvailabilityWatch,
     const notification = await sendMediaIssueNotification(watch, snapshot.detail || snapshot.status).catch((error) => ({
       sent: false,
       reason: error instanceof Error ? error.message : String(error),
-      telegramMessageId: undefined,
-      whatsappMessageId: undefined,
-    }));
+    } as const));
 
     await updateMediaAvailabilityWatch(watch.id, {
       dirty: false,
@@ -241,8 +240,7 @@ export async function checkMediaAvailabilityWatch(watch: MediaAvailabilityWatch,
       lastSnapshot: snapshot,
       lastNotificationAttemptAt: new Date().toISOString(),
       lastNotificationSentAt: notification.sent ? new Date().toISOString() : undefined,
-      lastTelegramMessageId: notification.telegramMessageId,
-      lastWhatsAppMessageId: notification.whatsappMessageId,
+      lastWhatsAppMessageId: notification.sent && notification.channel === 'whatsapp' ? notification.messageId : undefined,
       lastIssueNotificationAt: notification.sent ? new Date().toISOString() : watch.lastIssueNotificationAt,
       lastIssueFingerprint: notification.sent ? fingerprint : watch.lastIssueFingerprint,
       lastNotificationError: notification.sent ? undefined : notification.reason || 'Issue notification was not sent',
@@ -289,17 +287,15 @@ export async function checkMediaAvailabilityWatch(watch: MediaAvailabilityWatch,
   const notification = await sendMediaAvailableNotification({ ...watch, lastSnapshot: snapshot }).catch((error) => ({
     sent: false,
     reason: error instanceof Error ? error.message : String(error),
-    telegramMessageId: undefined,
-    whatsappMessageId: undefined,
-  }));
+  } as const));
   await recordAvailabilityDelivery([{ watch, snapshot }], notification);
-  return { checked: true, notified: notification.sent && watch.channel !== 'whatsapp', failed: !notification.sent };
+  return { checked: true, notified: notification.sent && notification.channel !== 'whatsapp', failed: !notification.sent };
 }
 
 export function groupMediaAvailabilityDeliveries(items: Array<{ watch: MediaAvailabilityWatch; snapshot: MediaAvailabilityWatchSnapshot }>) {
   const groups = new Map<string, typeof items>();
   for (const item of items) {
-    const key = `${item.watch.channel}:${item.watch.resourceId}`;
+    const key = item.watch.resourceId;
     groups.set(key, [...(groups.get(key) || []), item]);
   }
   return [...groups.values()].flatMap((group) => {
@@ -311,7 +307,7 @@ export function groupMediaAvailabilityDeliveries(items: Array<{ watch: MediaAvai
 
 async function recordAvailabilityDelivery(
   items: Array<{ watch: MediaAvailabilityWatch; snapshot: MediaAvailabilityWatchSnapshot }>,
-  notification: { sent: boolean; reason: string | null; telegramMessageId?: number; whatsappMessageId?: string },
+  notification: Delivery,
 ) {
   const now = new Date().toISOString();
   for (const { watch, snapshot } of items) {
@@ -328,7 +324,7 @@ async function recordAvailabilityDelivery(
       });
       continue;
     }
-    const awaitsWhatsAppReceipt = watch.channel === 'whatsapp';
+    const awaitsWhatsAppReceipt = notification.channel === 'whatsapp';
     await updateMediaAvailabilityWatch(watch.id, {
       status: awaitsWhatsAppReceipt ? 'delivery-pending' : 'notified',
       dirty: false,
@@ -336,12 +332,11 @@ async function recordAvailabilityDelivery(
       notifiedAt: awaitsWhatsAppReceipt ? undefined : now,
       lastNotificationAttemptAt: now,
       lastNotificationSentAt: now,
-      lastTelegramMessageId: notification.telegramMessageId,
-      lastWhatsAppMessageId: notification.whatsappMessageId,
+      lastWhatsAppMessageId: awaitsWhatsAppReceipt ? notification.messageId : undefined,
       lastSnapshot: snapshot,
       lastNotificationError: undefined,
     });
-    await appendOperationEvent({ correlationId, resourceId: watch.resourceId, threadId: watch.threadId, phase: awaitsWhatsAppReceipt ? 'availability-delivery-accepted' : 'plex-available-delivered', detail: { watchId: watch.id, channel: watch.channel } });
+    await appendOperationEvent({ correlationId, resourceId: watch.resourceId, threadId: watch.threadId, phase: awaitsWhatsAppReceipt ? 'availability-delivery-accepted' : 'plex-available-delivered', detail: { watchId: watch.id, channel: notification.channel } });
   }
 }
 
@@ -367,11 +362,9 @@ export async function sweepMediaAvailabilityWatches(): Promise<MediaAvailability
     const notification = await sendMediaAvailableNotification(group.map((item) => ({ ...item.watch, lastSnapshot: item.snapshot }))).catch((error) => ({
       sent: false,
       reason: error instanceof Error ? error.message : String(error),
-      telegramMessageId: undefined,
-      whatsappMessageId: undefined,
-    }));
+    } as const));
     await recordAvailabilityDelivery(group, notification);
-    if (notification.sent && group[0]?.watch.channel !== 'whatsapp') totals.notified += group.length;
+    if (notification.sent && notification.channel !== 'whatsapp') totals.notified += group.length;
     if (!notification.sent) totals.failed += group.length;
   }
 

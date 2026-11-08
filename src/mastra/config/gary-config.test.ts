@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertMutationAllowed, GaryConfigError, mediaOwnerActors, parseGaryConfig, requireService } from './gary-config';
+import { assertMutationAllowed, GaryConfigError, parseGaryConfig, requireService } from './gary-config';
 
 const seerrOnly = { SEERR_URL: 'http://seerr.test:5055/', SEERR_API_KEY: 'seerr-key', LLM_API_KEY: 'llm-key' };
 
@@ -81,7 +81,12 @@ test('read-only mode refuses every mutation and GARY_ALLOW_REQUESTS=false refuse
   assert.equal(assertMutationAllowed('change', noRequests), undefined);
 });
 
-test('media owners include configured actors, the admin WhatsApp number, and the household admin', () => {
-  const config = parseGaryConfig({ ...seerrOnly, GARY_MEDIA_OWNER_ACTORS: 'telegram:42, whatsapp:+15550001', GARY_ADMIN_WHATSAPP: '+1 555 000 0002' });
-  assert.deepEqual([...mediaOwnerActors(config)], ['telegram:42', 'whatsapp:+15550001', 'whatsapp:15550000002', 'admin-household']);
+test('channels are enabled by presence and a partial WhatsApp block names what is missing', () => {
+  const none = parseGaryConfig(seerrOnly);
+  assert.deepEqual([none.web.adminPassword, none.telegram, none.whatsapp], [undefined, undefined, undefined]);
+  const both = parseGaryConfig({ ...seerrOnly, GARY_ADMIN_PASSWORD: 'pw', TELEGRAM_BOT_TOKEN: 'bot-token' });
+  assert.deepEqual([both.web.adminPassword, both.telegram], ['pw', { botToken: 'bot-token' }]);
+  assert.deepEqual(problems({ ...seerrOnly, GARY_WHATSAPP_ACCESS_TOKEN: 't', GARY_WHATSAPP_APP_SECRET: 's' }), [
+    'WhatsApp is partly configured. Also set GARY_WHATSAPP_PHONE_NUMBER_ID, GARY_WHATSAPP_VERIFY_TOKEN, or unset the other GARY_WHATSAPP_* credentials.',
+  ]);
 });

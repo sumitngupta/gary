@@ -153,7 +153,6 @@ export async function updateMediaAvailabilityWatch(
     | 'lastNotificationError'
     | 'lastNotificationAttemptAt'
     | 'lastNotificationSentAt'
-    | 'lastTelegramMessageId'
     | 'lastWhatsAppMessageId'
     | 'lastIssueNotificationAt'
     | 'lastIssueFingerprint'

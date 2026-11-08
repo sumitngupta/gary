@@ -1,4 +1,4 @@
-import { createTool, type ToolExecutionContext } from '@mastra/core/tools';
+import { createTool } from '@mastra/core/tools';
 import {
   mediaQualityUpgradeExecuteInputSchema, mediaQualityUpgradeExecuteOutputSchema,
   mediaQualityUpgradePreviewInputSchema, mediaQualityUpgradePreviewOutputSchema, type MediaQualityUpgradeItem,
@@ -6,32 +6,16 @@ import {
 import { applyArrHardQualityProfileAndSearch, getRadarrMovieStatus, getSonarrSeriesStatus, getArrMediaQualityAudit } from '../services/arr-readonly-client';
 import { consumeMediaQualityUpgradePlan, createMediaQualityUpgradePlan, recordMediaQualityUpgrade } from '../services/media-quality-upgrade-store';
 
-import { isGaryWhatsAppActorAuthorized } from '../services/gary-access-policy';
 import { serverName } from '../config/branding';
-import { hardQualityProfileId, mediaOwnerActors } from '../config/gary-config';
-
-function actor(context: ToolExecutionContext | undefined) {
-  const channel = context?.requestContext?.get('channel') as { platform?: string; userId?: string } | undefined;
-  if (channel?.platform && channel.userId) {
-    const id = channel.platform.toLowerCase() === 'whatsapp' ? `+${channel.userId.replace(/\D/g, '')}` : channel.userId;
-    return `${channel.platform.toLowerCase()}:${id}`;
-  }
-  return context?.agent?.resourceId || '';
-}
-export async function canRequestMediaQualityUpgrade(actorId: string) {
-  if (mediaOwnerActors().has(actorId)) return true;
-  if (actorId.startsWith('whatsapp:') && /^\+?\d+$/.test(actorId.slice(9))) {
-    return isGaryWhatsAppActorAuthorized(actorId.slice(9));
-  }
-  return false;
-}
+import { hardQualityProfileId } from '../config/gary-config';
+import { callerActor } from '../channels/gary-channels';
 
 export const previewMediaQualityUpgradeTool = createTool({
   id: 'preview-media-quality-upgrade', description: 'Authorized-user read-only preview that freezes exact existing noncompliant titles for the hard 4K Dolby Vision plus Atmos profile. It does not change profiles, search, download, or replace files.',
   inputSchema: mediaQualityUpgradePreviewInputSchema, outputSchema: mediaQualityUpgradePreviewOutputSchema,
   execute: async (input, context) => {
-    const actorId = actor(context);
-    if (!await canRequestMediaQualityUpgrade(actorId)) return { status: 'denied' as const, items: [], totalCurrentBytes: 0, summary: `Quality upgrades require an authorized ${serverName()} user.`, mutation: false as const };
+    const { actorId } = await callerActor(context);
+    if (!actorId) return { status: 'denied' as const, items: [], totalCurrentBytes: 0, summary: 'Quality upgrades require someone enrolled with Gary.', mutation: false as const };
     try {
       const items: MediaQualityUpgradeItem[] = [];
       for (const candidate of input.candidates) {
@@ -61,8 +45,8 @@ export const executeMediaQualityUpgradeTool = createTool({
   description: 'Requesting-user-approved execution of one immutable quality-upgrade plan. Applies the hard Arr profile and starts an upgrade search; it never deletes the current file before a replacement imports.',
   inputSchema: mediaQualityUpgradeExecuteInputSchema, outputSchema: mediaQualityUpgradeExecuteOutputSchema,
   execute: async ({ planId }, context) => {
-    const actorId = actor(context);
-    if (!await canRequestMediaQualityUpgrade(actorId)) return { status: 'denied' as const, started: [], failed: [], summary: `Quality upgrades require an authorized ${serverName()} user.`, mutation: true as const };
+    const { actorId } = await callerActor(context);
+    if (!actorId) return { status: 'denied' as const, started: [], failed: [], summary: 'Quality upgrades require someone enrolled with Gary.', mutation: true as const };
     const items = await consumeMediaQualityUpgradePlan(planId, actorId);
     if (!items) return { status: 'expired' as const, started: [], failed: [], summary: 'That upgrade plan expired, was already used, or belongs to another user.', mutation: true as const };
     const started: MediaQualityUpgradeItem[] = []; const failed: Array<MediaQualityUpgradeItem & { error: string }> = [];

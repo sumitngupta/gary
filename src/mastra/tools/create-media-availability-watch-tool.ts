@@ -16,6 +16,7 @@ import {
 } from '../services/sonarr-season-summary';
 import type { TvCompleteness } from '../schemas/media-availability-watch';
 import { serverName } from '../config/branding';
+import { toolCaller } from '../channels/gary-channels';
 
 function titleWithYear(title: string, year?: number) {
   return `${title}${year ? ` (${year})` : ''}`;
@@ -55,8 +56,8 @@ export const createMediaAvailabilityWatchTool = createTool({
     const request = mediaAvailabilityWatchInputSchema.parse(input);
     const resourceId = context.agent?.resourceId || request.resourceId;
     const threadId = context.agent?.threadId || request.threadId;
-    const channel = resourceId?.startsWith('whatsapp:') ? 'whatsapp'
-      : resourceId?.startsWith('telegram:') ? 'telegram' : 'none';
+    const caller = await toolCaller(context);
+    const channel = caller?.kind === 'person' ? caller.channel : 'none';
     const channelContext = context.requestContext?.get('channel') as { messageId?: string } | undefined;
     const correlationId = channelContext?.messageId || request.correlationId;
 

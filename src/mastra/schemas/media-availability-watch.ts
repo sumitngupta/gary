@@ -48,7 +48,7 @@ export const mediaAvailabilityWatchSchema = z.object({
   requester: z.string().min(1).default('admin'),
   resourceId: z.string().min(1),
   threadId: z.string().min(1),
-  channel: z.enum(['telegram', 'whatsapp', 'none']).default('telegram'),
+  channel: z.enum(['web', 'telegram', 'whatsapp', 'none']).default('none'),
   status: z.enum(['active', 'available', 'delivery-pending', 'notified', 'cancelled', 'expired']).default('active'),
   dirty: z.boolean().default(true),
   createdAt: z.string(),
@@ -59,7 +59,6 @@ export const mediaAvailabilityWatchSchema = z.object({
   lastNotificationError: z.string().optional(),
   lastNotificationAttemptAt: z.string().optional(),
   lastNotificationSentAt: z.string().optional(),
-  lastTelegramMessageId: z.number().int().optional(),
   lastWhatsAppMessageId: z.string().optional(),
   lastIssueNotificationAt: z.string().optional(),
   lastIssueFingerprint: z.string().optional(),
@@ -80,7 +79,7 @@ export const mediaAvailabilityWatchInputSchema = z.object({
   resourceId: z.string().min(1).optional(),
   threadId: z.string().min(1).optional(),
   correlationId: z.string().optional(),
-  channel: z.enum(['telegram', 'whatsapp', 'none']).default('telegram'),
+  channel: z.enum(['web', 'telegram', 'whatsapp', 'none']).default('none'),
 });
 
 export const mediaAvailabilityWatchOutputSchema = z.object({
@@ -92,7 +91,7 @@ export const mediaAvailabilityWatchOutputSchema = z.object({
   seasonNumber: z.number().int().optional(),
   resourceId: z.string().optional(),
   threadId: z.string().optional(),
-  channel: z.enum(['telegram', 'whatsapp', 'none']),
+  channel: z.enum(['web', 'telegram', 'whatsapp', 'none']),
   summary: z.string(),
 });
 
